@@ -1,0 +1,15 @@
+{
+  "name": "מודד תשריטים",
+  "short_name": "תשריטים",
+  "dir": "rtl",
+  "lang": "he",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#EDF0F3",
+  "theme_color": "#16202B",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

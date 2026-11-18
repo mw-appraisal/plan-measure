@@ -1,0 +1,2260 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#16202B">
+<meta name="mobile-web-app-capable" content="yes">
+<title>מודד תשריטים</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Hebrew:wght@400;500;600&family=Rubik:wght@500;600&display=swap">
+<style>
+/* Layout: one-screen drafting tool. Home = list of properties; editor = canvas stage + tool rail + side panel (bottom sheet on phones). */
+:root {
+  --bg: #EDF0F3; --surface: #FFFFFF; --surface-2: #F5F7F9; --ink: #16202B; --muted: #5A6674;
+  --line: #D3D9E0; --accent: #1F4FD1; --accent-ink: #FFFFFF; --accent-soft: #E3EAFB;
+  --tape: #D99A06; --tape-soft: #FBF1D6; --danger: #C2362B; --ok: #1E8A4C; --warn: #B7780A;
+  --stage: #D9DEE4;
+  --f-display: "Rubik", "IBM Plex Sans Hebrew", "Segoe UI", system-ui, sans-serif;
+  --f-body: "IBM Plex Sans Hebrew", "Segoe UI", system-ui, sans-serif;
+  --f-num: "IBM Plex Mono", ui-monospace, "Consolas", monospace;
+  --r: 10px;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) { :root {
+  --bg: #0F141A; --surface: #171E26; --surface-2: #1D252E; --ink: #E5EAF0; --muted: #94A1AF;
+  --line: #2B3541; --accent: #7096FF; --accent-ink: #0C1220; --accent-soft: #1E2A45;
+  --tape: #F2B630; --tape-soft: #3A2F12; --danger: #FF6E61; --ok: #4CC27F; --warn: #F0B341;
+  --stage: #0A0E12; color-scheme: dark } }
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; margin: 0; }
+body { background: var(--bg); color: var(--ink); font-family: var(--f-body); font-size: 15px; overflow: hidden; padding-top: env(safe-area-inset-top, 0px); }
+#app { height: 100%; display: flex; flex-direction: column; }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.num { font-family: var(--f-num); font-variant-numeric: tabular-nums; direction: ltr; unicode-bidi: isolate; }
+
+.btn { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 8px 12px; min-height: 38px; white-space: nowrap; }
+.btn:hover { background: var(--surface-2); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+.btn.danger { color: var(--danger); }
+.btn.ghost { border-color: transparent; background: transparent; }
+.btn.sm { min-height: 32px; padding: 5px 10px; font-size: 14px; }
+.btn svg { width: 18px; height: 18px; flex: none; }
+.btn[disabled] { opacity: .45; cursor: default; }
+.field { display: grid; gap: 4px; }
+.field label { font-size: 13px; color: var(--muted); }
+.input { width: 100%; border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 8px 10px; min-height: 40px; }
+textarea.input { min-height: 70px; resize: vertical; }
+
+/* ---------- Home ---------- */
+#home, #login { flex: 1; overflow-y: auto; }
+.home-wrap { max-width: 980px; margin: 0 auto; padding-block: 28px 48px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 22px; }
+.home-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.brand { display: grid; gap: 4px; }
+.brand h1 { font-family: var(--f-display); font-weight: 600; font-size: 30px; margin: 0; letter-spacing: -.01em; display: flex; align-items: center; gap: 10px; }
+.brand p { margin: 0; color: var(--muted); max-width: 56ch; }
+.tape { height: 10px; border-radius: 3px; background:
+  repeating-linear-gradient(90deg, var(--ink) 0 1px, transparent 1px 10px) bottom/100% 5px no-repeat,
+  repeating-linear-gradient(90deg, var(--ink) 0 1.5px, transparent 1.5px 50px) bottom/100% 10px no-repeat, var(--tape);
+  opacity: .9; }
+.banner { border: 1px solid var(--line); background: var(--surface); border-radius: var(--r); padding: 10px 14px; font-size: 14px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.banner.warn { background: var(--tape-soft); }
+.plist { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
+.pcard { display: grid; grid-template-rows: 140px auto; text-align: start; padding: 0; border: 1px solid var(--line); background: var(--surface); border-radius: var(--r); overflow: hidden; }
+.pcard:hover { border-color: var(--accent); }
+.pthumb { background: var(--surface-2) center/cover no-repeat; border-bottom: 1px solid var(--line); display: grid; place-items: center; color: var(--muted); }
+.pthumb.sketch { background-image: linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px); background-size: 14px 14px; }
+.pmeta { padding: 12px 14px; display: grid; gap: 3px; min-width: 0; }
+.pmeta b { font-family: var(--f-display); font-weight: 500; font-size: 17px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pmeta span { color: var(--muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.empty { border: 1.5px dashed var(--line); border-radius: var(--r); padding: 34px 20px; text-align: center; color: var(--muted); display: grid; gap: 12px; justify-items: center; }
+.howto { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
+.howto div { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 12px 14px; font-size: 14px; color: var(--muted); }
+.howto b { display: block; color: var(--ink); font-weight: 600; margin-bottom: 2px; }
+.login-card { max-width: 440px; margin: 10vh auto 0; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 24px; display: grid; gap: 14px; }
+.login-card h2 { margin: 0; font-family: var(--f-display); font-weight: 500; }
+.login-card p { margin: 0; color: var(--muted); }
+
+/* ---------- Editor ---------- */
+#editor { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 350px; grid-template-rows: auto auto minmax(0, 1fr) auto; grid-template-areas: "top top" "pages panel" "stage panel" "tools panel"; }
+.topbar { grid-area: top; display: flex; align-items: center; gap: 8px; padding-block: 8px; padding-left: max(12px, env(safe-area-inset-left, 0px)); padding-right: max(12px, env(safe-area-inset-right, 0px)); background: var(--surface); border-bottom: 1px solid var(--line); min-width: 0; }
+.topbar .title { flex: 1; min-width: 0; display: grid; }
+.topbar .title b { font-family: var(--f-display); font-weight: 500; font-size: 17px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.topbar .title span { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sync { font-size: 12px; color: var(--muted); display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.sync i { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); display: inline-block; }
+.sync.saving i { background: var(--tape); }
+.sync.err i { background: var(--danger); }
+.pages { grid-area: pages; display: flex; gap: 6px; padding: 8px 12px; overflow-x: auto; background: var(--surface-2); border-bottom: 1px solid var(--line); scrollbar-width: thin; }
+.ptab { border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 5px 12px; white-space: nowrap; font-size: 14px; display: inline-flex; gap: 6px; align-items: center; }
+.ptab[aria-selected="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.ptab small { opacity: .65; font-size: 11px; }
+.stage { grid-area: stage; position: relative; background: var(--stage); overflow: hidden; touch-action: none; }
+#cv { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+.stage-ctl { position: absolute; top: 10px; left: 10px; display: grid; gap: 6px; z-index: 2; }
+.stage-ctl .btn { width: 40px; height: 40px; padding: 0; justify-content: center; box-shadow: 0 1px 3px rgb(0 0 0 / .12); }
+.stage-ctl .btn.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.stage-empty { position: absolute; inset: 0; display: grid; place-content: center; gap: 14px; text-align: center; padding: 20px; color: var(--muted); z-index: 1; }
+.stage-empty .row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+.ctxbar { position: absolute; bottom: 10px; right: 10px; left: 60px; display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-start; z-index: 2; pointer-events: none; }
+.ctxbar > * { pointer-events: auto; }
+.ctxbar .btn { box-shadow: 0 1px 4px rgb(0 0 0 / .15); }
+.hint { background: var(--ink); color: var(--bg); border-radius: 8px; padding: 7px 11px; font-size: 13px; box-shadow: 0 1px 4px rgb(0 0 0 / .2); max-width: 100%; }
+.walk { display: flex; gap: 6px; align-items: center; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 6px; box-shadow: 0 1px 4px rgb(0 0 0 / .15); flex-wrap: wrap; }
+.walk input { width: 80px; min-height: 36px; }
+.dirs { display: grid; grid-template-columns: repeat(3, 34px); gap: 3px; direction: ltr; }
+.dirs button { height: 30px; border: 1px solid var(--line); background: var(--surface-2); border-radius: 6px; padding: 0; font-size: 15px; }
+.dirs button:hover { background: var(--accent-soft); }
+.tools { grid-area: tools; display: flex; gap: 2px; justify-content: center; padding-top: 6px; padding-bottom: max(6px, env(safe-area-inset-bottom, 0px)); padding-left: max(8px, env(safe-area-inset-left, 0px)); padding-right: max(8px, env(safe-area-inset-right, 0px)); background: var(--surface); border-top: 1px solid var(--line); overflow-x: auto; }
+.tool { display: grid; justify-items: center; gap: 2px; border: 0; background: transparent; border-radius: 8px; padding: 6px 10px; min-width: 62px; font-size: 12px; color: var(--muted); }
+.tool svg { width: 22px; height: 22px; }
+.tool[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.tool.sep { border-inline-start: 1px solid var(--line); border-radius: 0; margin-inline-start: 4px; padding-inline-start: 12px; }
+.panel { grid-area: panel; background: var(--surface); border-inline-start: 1px solid var(--line); overflow-y: auto; overflow-x: hidden; display: grid; align-content: start; min-width: 0; }
+.psec { padding: 14px 16px; border-bottom: 1px solid var(--line); display: grid; gap: 10px; min-width: 0; }
+.psec h3 { margin: 0; font-family: var(--f-display); font-weight: 500; font-size: 15px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.psec h3 small { font-family: var(--f-body); font-weight: 400; color: var(--muted); font-size: 12px; }
+.sheet-handle { display: none; }
+.scale-box { border-radius: 8px; padding: 10px 12px; font-size: 14px; background: var(--surface-2); display: grid; gap: 8px; }
+.scale-box.missing { background: var(--tape-soft); }
+table.sum { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+table.sum th { text-align: start; font-weight: 500; color: var(--muted); font-size: 12px; padding: 4px 4px; border-bottom: 1px solid var(--line); }
+table.sum td { padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+table.sum td.n, table.sum th.n { text-align: end; }
+table.sum tr.click { cursor: pointer; }
+table.sum tr.click:hover td { background: var(--surface-2); }
+table.sum tr.sel td { background: var(--accent-soft); }
+table.sum tfoot td { font-weight: 600; border-bottom: 0; }
+.tbl-wrap { overflow-x: auto; }
+.sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-inline-end: 6px; vertical-align: -1px; }
+.diff { font-size: 12px; padding: 1px 6px; border-radius: 999px; }
+.diff.ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, transparent); }
+.diff.warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 16%, transparent); }
+.diff.bad { color: var(--danger); background: color-mix(in srgb, var(--danger) 14%, transparent); }
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.grow { flex: 1; min-width: 0; }
+.calc { font-size: 12px; color: var(--muted); }
+.edit-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.edit-grid .full { grid-column: 1 / -1; }
+.edit-grid > *, .field > * { min-width: 0; }
+.path { font-size: 12px; color: var(--muted); word-break: break-all; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--surface); box-shadow: 0 1px 4px rgb(0 0 0 / .15); }
+.seg button { border: 0; background: transparent; padding: 5px 12px; min-height: 32px; font-size: 14px; }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--bg); font-weight: 600; }
+.stage-ctl .btn.txt { font-size: 12px; font-weight: 600; }
+.note-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.note-tools .seg { box-shadow: none; }
+.swatch { width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--line); padding: 0; background: var(--surface); font-size: 13px; color: var(--muted); }
+.swatch[aria-pressed="true"] { outline: 2px solid var(--accent); outline-offset: 2px; }
+.wall-note { font-size: 13px; background: var(--surface-2); border-radius: 8px; padding: 8px 10px; }
+
+/* ---------- Modal & toast ---------- */
+.modal { position: fixed; inset: 0; background: rgb(8 12 18 / .45); display: grid; place-items: center; z-index: 50; padding: 16px; }
+.dialog { background: var(--surface); border-radius: 14px; width: min(480px, 100%); max-height: 90%; overflow-y: auto; padding: 20px; display: grid; gap: 14px; box-shadow: 0 20px 50px rgb(0 0 0 / .3); }
+.dialog h2 { margin: 0; font-family: var(--f-display); font-weight: 500; font-size: 19px; }
+.dialog p { margin: 0; color: var(--muted); font-size: 14px; }
+.dialog .actions { display: flex; gap: 8px; justify-content: flex-start; flex-wrap: wrap; }
+.choice { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.choice button { display: grid; gap: 6px; justify-items: center; text-align: center; padding: 16px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); }
+.choice button:hover { border-color: var(--accent); }
+.choice svg { width: 30px; height: 30px; color: var(--accent); }
+.choice small { color: var(--muted); font-size: 12px; }
+.flist { display: grid; border: 1px solid var(--line); border-radius: 10px; max-height: 45vh; overflow-y: auto; }
+.flist button { text-align: start; border: 0; border-bottom: 1px solid var(--line); background: transparent; padding: 11px 12px; display: flex; gap: 8px; align-items: center; }
+.flist button:last-child { border-bottom: 0; }
+.flist button:hover { background: var(--surface-2); }
+.flist svg { width: 18px; height: 18px; color: var(--tape); flex: none; }
+.toast { position: fixed; bottom: calc(80px + env(safe-area-inset-bottom, 0px)); left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 10px; z-index: 60; font-size: 14px; max-width: calc(100% - 32px); box-shadow: 0 6px 20px rgb(0 0 0 / .25); }
+.progress { height: 6px; background: var(--surface-2); border-radius: 3px; overflow: hidden; }
+.progress i { display: block; height: 100%; background: var(--accent); width: 0; transition: width .2s; }
+
+/* ---------- Phone / tablet portrait ---------- */
+@media (max-width: 860px) {
+  #editor { grid-template-columns: minmax(0, 1fr); grid-template-areas: "top" "pages" "stage" "tools"; position: relative; }
+  .panel { position: absolute; left: 0; right: 0; bottom: var(--tools-h, 64px); max-height: 58%; border-inline-start: 0; border-top: 1px solid var(--line); border-radius: 16px 16px 0 0; box-shadow: 0 -8px 30px rgb(0 0 0 / .18); z-index: 5; }
+  .panel:not(.open) { display: none; }
+  .sheet-handle { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px 0 16px; position: sticky; top: 0; background: var(--surface); z-index: 1; }
+  .sheet-handle::before { content: ""; width: 40px; height: 4px; border-radius: 2px; background: var(--line); position: absolute; top: 6px; left: 50%; transform: translateX(-50%); }
+  .tools { justify-content: stretch; gap: 0; }
+  .tool { min-width: 0; flex: 1; padding: 6px 2px; font-size: 11px; }
+  .tool.sep { margin-inline-start: 0; padding-inline-start: 2px; }
+  .tool svg { width: 21px; height: 21px; }
+  .brand h1 { font-size: 25px; }
+  .topbar .btn .lbl { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div id="app">
+  <!-- LOGIN (phone) -->
+  <section id="login" hidden>
+    <div class="home-wrap">
+      <div class="login-card">
+        <h2>מודד תשריטים</h2>
+        <p id="loginText">התחברי לחשבון ה-OneDrive של המשרד כדי לפתוח את הנכסים שמדדת במחשב.</p>
+        <button class="btn primary" id="loginBtn">התחברות ל-OneDrive</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- HOME -->
+  <section id="home" hidden>
+    <div class="home-wrap">
+      <div class="home-head">
+        <div class="brand">
+          <h1>
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="2.5" y="7" width="19" height="10" rx="1.5"/><path d="M6 7v3M9 7v2M12 7v3M15 7v2M18 7v3"/></svg>
+            מודד תשריטים
+          </h1>
+          <p>מעלים תשריט, מכיילים קנה מידה ומודדים שטחים. המדידות נשמרות בתיקיית התיק ב-OneDrive, כך שמה שרושמים בטלפון בביקור מופיע במחשב.</p>
+        </div>
+        <button class="btn primary" id="newProp"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>נכס חדש</button>
+      </div>
+      <div class="tape" aria-hidden="true"></div>
+      <div id="modeBanner" class="banner" hidden></div>
+      <div id="plist" class="plist"></div>
+      <div class="row" id="scanRow" hidden><span class="muted small grow">לא מוצאת נכס ברשימה? אפשר לחפש את כל המדידות שנשמרו בתיקיות התיקים.</span><button class="btn sm" id="scanBtn">חיפוש נכסים בתיקיות</button></div>
+      <div class="banner" id="assocRow" hidden><span class="grow">כדי שלחיצה כפולה על קובץ מדידה (<span class="num">.tsm</span>) תפתח אותו בתוכנה, צריך לקשר את סוג הקובץ לתוכנה. עושים את זה פעם אחת.</span><button class="btn sm primary" id="assocBtn">קישור קבצי מדידה לתוכנה</button></div>
+      <div id="homeEmpty" class="empty" hidden>
+        <b style="color:var(--ink);font-size:17px">עוד אין נכסים</b>
+        <span>בוחרים את תיקיית התיק, ומעלים אליה תשריט אחד או יותר (קומה לכל עמוד), או מציירים סקיצה בשטח.</span>
+        <button class="btn primary" id="newProp2">יצירת נכס ראשון</button>
+      </div>
+      <div class="howto">
+        <div><b>1. כיול</b>בכלי "קנה מידה" מסמנים קו שאורכו ידוע (למשל מידה רשומה בתשריט) ומקלידים את האורך.</div>
+        <div><b>2. מדידה</b>בכלי "שטח" לוחצים על פינות החדר. השטח מחושב לפי קנה המידה.</div>
+        <div><b>3. בשטח</b>בטלפון: "מידה" על קיר ורישום האורך שנמדד בפועל, או שטח בפועל לחדר (אפשר 4.2*3.5).</div>
+        <div><b>4. השוואה</b>בלוח הסיכום: תשריט מול בפועל, עם הפרש באחוזים לכל חדר ולכל הנכס.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- EDITOR -->
+  <section id="editor" hidden>
+    <div class="topbar">
+      <button class="btn ghost" id="back" aria-label="חזרה לרשימת הנכסים"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg><span class="lbl">נכסים</span></button>
+      <div class="title"><b id="eName"></b><span id="eAddr"></span></div>
+      <span class="sync" id="sync"><i></i><span>נשמר</span></span>
+      <button class="btn ghost" id="undo" aria-label="ביטול פעולה" title="ביטול (Ctrl+Z)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 14l-5-5 5-5"/><path d="M4 9h10a6 6 0 010 12h-3"/></svg></button>
+      <button class="btn ghost" id="propMenu" aria-label="פרטי הנכס"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="12" cy="19" r="1.4"/></svg></button>
+    </div>
+    <div class="pages" id="pages" role="tablist"></div>
+    <div class="stage" id="stage">
+      <canvas id="cv"></canvas>
+      <div class="stage-ctl">
+        <button class="btn" id="zin" aria-label="הגדלה"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg></button>
+        <button class="btn" id="zout" aria-label="הקטנה"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/></svg></button>
+        <button class="btn" id="zfit" aria-label="התאמה למסך"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
+        <button class="btn" id="ortho" aria-label="יישור לזוויות ישרות" title="יישור לזוויות של 45°/90°"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 4v15h15"/><path d="M5 12a7 7 0 017 7"/></svg></button>
+        <button class="btn txt" id="dims" title="הצגה או הסתרה של אורכי כל הקירות">מידות</button>
+        <button class="btn" id="fillMode" title="תצוגת השטחים: צבועים / קונטור ושטח / קונטור בלבד"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16v14H4z"/><path d="M4 12l8-7M4 19L20 5M12 19l8-7" stroke-width="1.4"/></svg></button>
+      </div>
+      <div class="stage-empty" id="stageEmpty" hidden>
+        <b style="color:var(--ink);font-size:18px">אין עדיין עמודים בנכס</b>
+        <span>כל עמוד הוא קומה או תשריט נפרד. קובץ PDF של כמה עמודים יוצר עמוד לכל אחד.</span>
+        <div class="row">
+          <button class="btn primary" data-act="upload">העלאת תשריט</button>
+          <button class="btn" data-act="sketch">ציור סקיצה בשטח</button>
+        </div>
+      </div>
+      <div class="ctxbar" id="ctxbar"></div>
+    </div>
+    <div class="tools" id="tools"></div>
+    <aside class="panel" id="panel">
+      <div class="sheet-handle"><b style="font-family:var(--f-display);font-weight:500" id="sheetTitle">סיכום</b><button class="btn ghost sm" id="sheetClose" aria-label="סגירה">✕</button></div>
+      <div id="selBox"></div>
+      <div id="sumBox"></div>
+    </aside>
+  </section>
+
+  <div class="modal" id="modal" hidden><div class="dialog" id="dialog" role="dialog" aria-modal="true"></div></div>
+  <div class="toast" id="toast" hidden></div>
+  <input type="file" id="file" accept="image/*,application/pdf" multiple hidden>
+</div>
+
+<script src="config.js"></script>
+<script>
+(() => {
+'use strict';
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+const clone = o => JSON.parse(JSON.stringify(o));
+const r1 = v => Math.round(v * 10) / 10;
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const CFG = Object.assign({ clientId: '', authority: 'https://login.microsoftonline.com/organizations', casesStart: 'MW שמאות מקרקעין', indexPath: 'מדידות תשריטים/נכסים.json' }, window.PM_CONFIG || {});
+// the measurements file has the program's own extension (.tsm), so double-clicking it opens the program
+const SUB = 'מדידות תשריט', DATA_FILE = 'מדידות.tsm', OLD_DATA_FILE = 'מדידות.json';
+const encPath = rel => rel.split('/').map(encodeURIComponent).join('/');
+
+const CATS = {
+  main:    { n: 'עיקרי',      c: '#2D62E0' },
+  mamad:   { n: 'ממ"ד',       c: '#7A4BD6' },
+  balcony: { n: 'מרפסת',      c: '#1E9E5A' },
+  storage: { n: 'מחסן',       c: '#B5651D' },
+  parking: { n: 'חניה',       c: '#6B7785' },
+  yard:    { n: 'חצר / גינה', c: '#5A9A1E' },
+  other:   { n: 'אחר',        c: '#C23A7A' },
+  walls:   { n: 'קירות',      c: '#6B7785' },
+};
+const LINE_C = '#E09A00', PEN_C = '#D2342A';
+// note styling: size is in screen pixels, like the other labels
+const NOTE_SIZES = [[10, 'קטן'], [12.5, 'רגיל'], [15, 'בינוני'], [18, 'גדול'], [23, 'גדול מאוד'], [30, 'ענק']];
+const NOTE_FG = { ink: ['#16202B', 'שחור'], red: ['#C2362B', 'אדום'], blue: ['#1F4FD1', 'כחול'], green: ['#1E8A4C', 'ירוק'], brown: ['#3d2f00', 'חום'] };
+const NOTE_BG = { yellow: ['#FFF4C7', 'צהוב'], white: ['#FFFFFF', 'לבן'], pink: ['#FDE2E1', 'ורוד'], none: [null, 'שקוף'] };
+const noteStyle = s => ({ size: s.size || 12.5, bold: !!s.bold, italic: !!s.italic, fg: (NOTE_FG[s.color] || NOTE_FG.brown)[0], bg: (NOTE_BG[s.bg] || NOTE_BG.yellow)[0] });
+
+const IC = {
+  pan: '<path d="M8 13V5.5a1.5 1.5 0 013 0V12M11 11.5V4a1.5 1.5 0 013 0v7.5M14 11.5V5.5a1.5 1.5 0 013 0V14a7 7 0 01-7 7h-.5a6 6 0 01-4.6-2.2L3 16a1.6 1.6 0 012.4-2L8 16"/>',
+  area: '<path d="M4 6l9-2 7 6-3 10H6z"/><circle cx="4" cy="6" r="1.3" fill="currentColor"/><circle cx="13" cy="4" r="1.3" fill="currentColor"/><circle cx="20" cy="10" r="1.3" fill="currentColor"/>',
+  line: '<path d="M4 18L20 6"/><path d="M3 15l3 5M17 4l3 5"/>',
+  text: '<path d="M5 6h14M12 6v13"/><path d="M8 19h8"/>',
+  pen: '<path d="M4 20l1-5L16 4l4 4L9 19z"/><path d="M14 6l4 4"/>',
+  tape: '<circle cx="10" cy="12" r="7"/><circle cx="10" cy="12" r="2"/><path d="M17 12h5v4h-3"/>',
+  erase: '<path d="M8.5 20H20"/><path d="M4.6 15.4l9.9-9.9a2 2 0 012.8 0l2.2 2.2a2 2 0 010 2.8L11 19H8.2z"/><path d="M9.5 10.5l5 5"/>',
+  scale: '<rect x="2.5" y="8" width="19" height="8" rx="1"/><path d="M6 8v3M9 8v2M12 8v3M15 8v2M18 8v3"/>',
+  sum: '<path d="M4 5h16M4 10h16M4 15h10M4 20h7"/>',
+  upload: '<path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v4h16v-4"/>',
+  sketch: '<path d="M3 3h18v18H3z" stroke-dasharray="2 2"/><path d="M7 16V8h10v8z"/>',
+  folder: '<path d="M3 6.5A1.5 1.5 0 014.5 5H9l2 2h8.5A1.5 1.5 0 0121 8.5v9a1.5 1.5 0 01-1.5 1.5h-15A1.5 1.5 0 013 17.5z" fill="currentColor" fill-opacity=".25"/>',
+};
+const svg = (k, sw = 1.8) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${IC[k]}</svg>`;
+
+function loadScript(src) { return new Promise((res, rej) => { const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = () => rej(new Error('טעינת רכיב נכשלה. בדקי חיבור לאינטרנט.')); document.head.appendChild(s); }); }
+function blobToB64(blob) { return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1]); r.onerror = () => rej(r.error); r.readAsDataURL(blob); }); }
+
+/* =====================================================================
+   Storage backends. All paths are relative to the OneDrive root, with "/".
+   read(rel) -> {text, version} | null ; write(rel, text, ifVersion) -> {ok, version} | {conflict, version}
+   ===================================================================== */
+
+// --- Computer: the Python program writes straight into the OneDrive folder ---
+const Desk = {
+  kind: 'desktop',
+  async init() {
+    await new Promise(r => { if (window.pywebview?.api) return r(); window.addEventListener('pywebviewready', r, { once: true }); });
+    this.api = window.pywebview.api; this.info = await this.api.info();
+    if (this.info.casesStart) CFG.casesStart = this.info.casesStart;
+    return true;
+  },
+  read: rel => Desk.api.read_text(rel),
+  write: (rel, text, ver) => Desk.api.write_text(rel, text, ver || null),
+  stat: rel => Desk.api.stat(rel),
+  async writeBlob(rel, blob) { return Desk.api.write_b64(rel, await blobToB64(blob)); },
+  async imageUrl(rel) { return location.origin + '/od/' + encPath(rel); },
+  listDirs: rel => Desk.api.list_dir(rel || ''),
+  pickFolder: () => Desk.api.pick_folder(),
+  openFolder: rel => Desk.api.open_folder(rel),
+  remove: rel => Desk.api.remove_old_data(rel),
+};
+
+// --- Phone / tablet: Microsoft Graph, the same files in OneDrive ---
+const SCOPES = ['Files.ReadWrite'];
+const Graph = {
+  kind: 'onedrive', msal: null, account: null, urls: new Map(),
+  async init() {
+    if (!CFG.clientId) return false;
+    await loadScript('https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.38.3/lib/msal-browser.min.js');
+    this.msal = new msal.PublicClientApplication({
+      auth: { clientId: CFG.clientId, authority: CFG.authority, redirectUri: location.origin + location.pathname },
+      cache: { cacheLocation: 'localStorage' },
+    });
+    if (this.msal.initialize) await this.msal.initialize();
+    const r = await this.msal.handleRedirectPromise().catch(e => { console.warn(e); return null; });
+    this.account = r?.account || this.msal.getAllAccounts()[0] || null;
+    return !!this.account;
+  },
+  login() { this.msal.loginRedirect({ scopes: SCOPES, prompt: 'select_account' }); },
+  logout() { this.msal.logoutRedirect({ account: this.account }); },
+  async token() {
+    try { return (await this.msal.acquireTokenSilent({ scopes: SCOPES, account: this.account })).accessToken; }
+    catch (e) { await this.msal.acquireTokenRedirect({ scopes: SCOPES, account: this.account }); throw e; }
+  },
+  async req(method, url, body, headers = {}) {
+    const t = await this.token();
+    const r = await fetch(url.startsWith('http') ? url : 'https://graph.microsoft.com/v1.0' + url, { method, body, headers: { Authorization: 'Bearer ' + t, ...headers } });
+    return r;
+  },
+  item: rel => rel ? '/me/drive/root:/' + encPath(rel) + ':' : '/me/drive/root',
+  async meta(rel) { const r = await this.req('GET', this.item(rel)); if (r.status === 404) return null; if (!r.ok) throw new Error('OneDrive ' + r.status); return r.json(); },
+  async read(rel) {
+    const m = await this.meta(rel); if (!m || !m.file) return null;
+    const t = await (await fetch(m['@microsoft.graph.downloadUrl'], { cache: 'no-store' })).text();
+    return { text: t, version: m.eTag };
+  },
+  async stat(rel) { const r = await this.req('GET', this.item(rel) + '?$select=eTag'); if (r.status === 404) return null; if (!r.ok) throw new Error('OneDrive ' + r.status); return (await r.json()).eTag; },
+  async write(rel, text, ver) {
+    const h = { 'Content-Type': 'application/json; charset=utf-8' }; if (ver) h['If-Match'] = ver;
+    const r = await this.req('PUT', this.item(rel) + '/content', new Blob([text], { type: 'application/json' }), h);
+    if (r.status === 412) return { conflict: true, version: await this.stat(rel) };
+    if (!r.ok) throw new Error('השמירה ל-OneDrive נכשלה (' + r.status + ')');
+    return { ok: true, version: (await r.json()).eTag };
+  },
+  async writeBlob(rel, blob) {
+    if (blob.size < 3.5 * 1048576) {
+      const r = await this.req('PUT', this.item(rel) + '/content', blob, { 'Content-Type': blob.type || 'application/octet-stream' });
+      if (!r.ok) throw new Error('ההעלאה ל-OneDrive נכשלה (' + r.status + ')');
+      return { ok: true };
+    }
+    const s = await this.req('POST', this.item(rel) + '/createUploadSession', JSON.stringify({ item: { '@microsoft.graph.conflictBehavior': 'replace' } }), { 'Content-Type': 'application/json' });
+    if (!s.ok) throw new Error('ההעלאה ל-OneDrive נכשלה (' + s.status + ')');
+    const { uploadUrl } = await s.json(); const CH = 320 * 1024 * 10;
+    for (let o = 0; o < blob.size; o += CH) {
+      const part = blob.slice(o, Math.min(o + CH, blob.size));
+      const r = await fetch(uploadUrl, { method: 'PUT', body: part, headers: { 'Content-Range': `bytes ${o}-${o + part.size - 1}/${blob.size}` } });
+      if (!r.ok && r.status !== 202) throw new Error('ההעלאה ל-OneDrive נכשלה (' + r.status + ')');
+    }
+    return { ok: true };
+  },
+  async imageUrl(rel) {
+    const c = this.urls.get(rel); if (c && c.t > Date.now() - 40 * 60000) return c.u;
+    const m = await this.meta(rel); if (!m) return null;
+    this.urls.set(rel, { u: m['@microsoft.graph.downloadUrl'], t: Date.now() }); return m['@microsoft.graph.downloadUrl'];
+  },
+  async listDirs(rel) {
+    const out = []; let url = (rel ? this.item(rel) : '/me/drive/root') + '/children?$select=name,folder&$top=500';
+    while (url) { const r = await this.req('GET', url); if (r.status === 404) return []; if (!r.ok) throw new Error('OneDrive ' + r.status); const j = await r.json(); j.value.filter(x => x.folder).forEach(x => out.push(x.name)); url = j['@odata.nextLink']; }
+    return out.sort((a, b) => a.localeCompare(b, 'he'));
+  },
+  pickFolder: () => browseFolders(CFG.casesStart),
+  async remove(rel) { const r = await this.req('DELETE', this.item(rel)); if (!r.ok && r.status !== 404) throw new Error('OneDrive ' + r.status); },
+};
+
+// --- Test mode (a plain browser without either): files kept in this browser only ---
+const Demo = {
+  kind: 'demo', urls: new Map(),
+  init() { this.fs = (() => { try { return JSON.parse(localStorage.getItem('pm.demo') || '{}'); } catch { return {}; } })(); return true; },
+  persist() { try { localStorage.setItem('pm.demo', JSON.stringify(this.fs)); } catch { toast('אין מקום לשמירה בדפדפן'); } },
+  async read(rel) { const f = this.fs[rel]; return f ? { text: f.text, version: f.v } : null; },
+  async stat(rel) { return this.fs[rel]?.v || null; },
+  async write(rel, text, ver) { const f = this.fs[rel]; if (ver && f && f.v !== ver) return { conflict: true, version: f.v }; const v = String(Date.now() + Math.random()); this.fs[rel] = { text, v }; this.persist(); return { ok: true, version: v }; },
+  async writeBlob(rel, blob) {
+    const db = await this.idb(); await new Promise((res, rej) => { const t = db.transaction('b', 'readwrite'); t.objectStore('b').put(blob, rel); t.oncomplete = res; t.onerror = () => rej(t.error); });
+    this.urls.delete(rel); this.fs[rel] = this.fs[rel] || { text: '', v: '1', blob: true }; this.persist(); return { ok: true };
+  },
+  async imageUrl(rel) {
+    if (this.urls.has(rel)) return this.urls.get(rel);
+    const db = await this.idb(); const b = await new Promise(res => { const q = db.transaction('b').objectStore('b').get(rel); q.onsuccess = () => res(q.result); q.onerror = () => res(null); });
+    if (!b) return null; const u = URL.createObjectURL(b); this.urls.set(rel, u); return u;
+  },
+  idb() { return this._db ||= new Promise((res, rej) => { const r = indexedDB.open('pm-demo', 1); r.onupgradeneeded = () => r.result.createObjectStore('b'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); },
+  async listDirs(rel) { const pre = rel ? rel + '/' : ''; const s = new Set(); Object.keys(this.fs).forEach(k => { if (k.startsWith(pre)) { const rest = k.slice(pre.length).split('/'); if (rest.length > 1) s.add(rest[0]); } }); return [...s].sort(); },
+  pickFolder: () => browseFolders(CFG.casesStart),
+  async remove(rel) { delete this.fs[rel]; this.persist(); },
+};
+
+let Store = Demo;
+async function readJSON(rel) { const r = await Store.read(rel); if (!r) return null; try { return { data: JSON.parse(r.text), version: r.version }; } catch { throw new Error('הקובץ ' + rel + ' פגום'); } }
+// fields starting with _ are in-memory caches and never saved
+const writeJSON = (rel, data, ver) => Store.write(rel, JSON.stringify(data, (k, v) => k[0] === '_' ? undefined : v, 1), ver);
+
+/* ================= Geometry & units ================= */
+const dist = (a, b) => Math.hypot(b[0] - a[0], b[1] - a[1]);
+const polyArea = pts => { let s = 0; for (let i = 0; i < pts.length; i++) { const a = pts[i], b = pts[(i + 1) % pts.length]; s += a[0] * b[1] - b[0] * a[1]; } return Math.abs(s) / 2; };
+function centroid(pts) {
+  let a = 0, cx = 0, cy = 0;
+  for (let i = 0; i < pts.length; i++) { const p = pts[i], q = pts[(i + 1) % pts.length]; const f = p[0] * q[1] - q[0] * p[1]; a += f; cx += (p[0] + q[0]) * f; cy += (p[1] + q[1]) * f; }
+  if (Math.abs(a) < 1e-6) return pts.reduce((s, p) => [s[0] + p[0] / pts.length, s[1] + p[1] / pts.length], [0, 0]);
+  return [cx / (3 * a), cy / (3 * a)];
+}
+function inPoly(p, pts) { let c = false; for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) { const a = pts[i], b = pts[j]; if ((a[1] > p[1]) !== (b[1] > p[1]) && p[0] < (b[0] - a[0]) * (p[1] - a[1]) / (b[1] - a[1]) + a[0]) c = !c; } return c; }
+function segDist(p, a, b) { const dx = b[0] - a[0], dy = b[1] - a[1], l = dx * dx + dy * dy; let t = l ? ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / l : 0; t = Math.max(0, Math.min(1, t)); return Math.hypot(p[0] - a[0] - t * dx, p[1] - a[1] - t * dy); }
+
+const pxPerM = pg => pg ? (pg.kind === 'sketch' ? 100 : (pg.scale && pg.scale.pxPerM) || null) : null;
+const lenM = (pg, u) => { const k = pxPerM(pg); return k ? u / k : null; };
+const areaM = (pg, pts) => { const k = pxPerM(pg); return k ? polyArea(pts) / (k * k) : null; };
+const fmt = (v, d = 2) => v == null || !isFinite(v) ? '—' : v.toLocaleString('he-IL', { minimumFractionDigits: d, maximumFractionDigits: d });
+
+/** Field values may be typed as an expression: "4.2*3.5 + 1,2x0.8" */
+function evalExpr(s) {
+  if (s == null) return null; s = String(s).trim(); if (!s) return null;
+  s = s.replace(/[x×X]/g, '*').replace(/÷/g, '/').replace(/(\d),(\d)/g, '$1.$2');
+  if (!/^[\d.\s+\-*/()]+$/.test(s)) return NaN;
+  try { const v = Function('"use strict";return (' + s + ')')(); return typeof v === 'number' && isFinite(v) ? v : NaN; } catch { return NaN; }
+}
+function diffPct(plan, real) { if (plan == null || real == null || !isFinite(real) || !plan) return null; return (real - plan) / plan * 100; }
+function diffChip(p) {
+  if (p == null) return '';
+  const a = Math.abs(p), cls = a < 3 ? 'ok' : a < 8 ? 'warn' : 'bad';
+  return `<span class="diff ${cls} num">${p > 0 ? '+' : ''}${fmt(p, 1)}%</span>`;
+}
+
+/* ================= App state ================= */
+const S = {
+  index: [], folder: null, prop: null, propVer: null, pageId: null, page: null,
+  img: null, tool: 'pan', draft: null, hover: null, selId: null, placing: null,
+  V: { s: 1, tx: 0, ty: 0 }, ortho: false, undo: [], dirty: false, saving: false, saveTimer: null,
+  lastCat: 'main', panelOpen: false, autoFit: true,
+  layer: 'net',   // all wall lines are one kind now (older files had net/gross; see migratePage)
+  show: 'all',
+};
+// how areas look on the plan: 'full' (colored + label), 'outline' (contour + label), 'lines' (contour only)
+S.fill = 'full';
+// wall lengths on the plan: hidden by default, shown for everything with the "מידות" button
+S.dims = false;
+S.segMode = 'line';   // wall tool: 'line' or 'arc'
+S.lenTyped = '';      // a length typed for the next wall
+try { S.dims = localStorage.getItem('pm.dims') === '1'; } catch {}
+try { const f = localStorage.getItem('pm.fill'); if (f === 'outline' || f === 'lines') S.fill = f; } catch {}
+const FILL_NAMES = { full: 'שטחים צבועים', outline: 'קונטור ושטח במ״ר, בלי צבע', lines: 'קונטור בלבד' };
+const MEAS = { net: 'שטחים', gross: 'שטחים' };
+const kindOf = s => s.m === 'gross' ? 'gross' : 'net';
+const visible = s => s.t !== 'poly' || S.show === 'all' || kindOf(s) === S.show;
+const pages = () => (S.prop?.pages || []).slice().sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+const dataPath = folder => folder + '/' + DATA_FILE;
+/** Reads a property's measurements; an older "מדידות.json" is converted to "מדידות.tsm" the first time. */
+async function readProp(folder) {
+  const r = await readJSON(dataPath(folder)); if (r) return r;
+  const old = await readJSON(folder + '/' + OLD_DATA_FILE); if (!old) return null;
+  const w = await writeJSON(dataPath(folder), old.data, null);
+  if (!w.ok) return old;
+  try { await Store.remove(folder + '/' + OLD_DATA_FILE); } catch {}
+  return { data: old.data, version: w.version };
+}
+
+/* ================= UI helpers ================= */
+let toastT;
+function toast(msg, ms = 2800) { const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => t.hidden = true, ms); }
+function setSync(state, text) { const el = $('#sync'); el.className = 'sync ' + (state || ''); el.querySelector('span').textContent = text; }
+
+/** In-page dialog. fields: [{id,label,type,value,placeholder,options,num,help}] ; resolves with values or null */
+function dialog({ title, text = '', fields = [], ok = 'שמירה', cancel = 'ביטול', danger = false, html = '', onOpen }) {
+  return new Promise(resolve => {
+    const d = $('#dialog');
+    d.innerHTML = `<h2>${esc(title)}</h2>${text ? `<p>${text}</p>` : ''}${html}
+      <form id="dlgForm" style="display:grid;gap:12px">
+        ${fields.map(f => `<div class="field"><label for="dlg_${f.id}">${esc(f.label)}</label>${
+          f.type === 'textarea' ? `<textarea class="input" id="dlg_${f.id}" placeholder="${esc(f.placeholder || '')}">${esc(f.value || '')}</textarea>`
+          : `<input class="input${f.num ? ' num' : ''}" id="dlg_${f.id}" ${f.num ? 'inputmode="decimal"' : ''} value="${esc(f.value ?? '')}" placeholder="${esc(f.placeholder || '')}" autocomplete="off">`}
+          ${f.help ? `<span class="calc">${f.help}</span>` : ''}</div>`).join('')}
+        <div class="actions">
+          ${ok ? `<button type="submit" class="btn ${danger ? 'danger' : 'primary'}">${esc(ok)}</button>` : ''}
+          <button type="button" class="btn" id="dlgCancel">${esc(cancel)}</button>
+        </div>
+      </form>`;
+    $('#modal').hidden = false;
+    const close = v => { $('#modal').hidden = true; $('#modal').onclick = null; d.innerHTML = ''; resolve(v); };
+    d.querySelector('#dlgCancel').onclick = () => close(null);
+    $('#modal').onclick = e => { if (e.target.id === 'modal') close(null); };
+    d.querySelector('#dlgForm').onsubmit = e => { e.preventDefault(); const out = {}; fields.forEach(f => out[f.id] = d.querySelector('#dlg_' + f.id).value); close(out); };
+    if (onOpen) onOpen(d, close);
+    const first = d.querySelector('input,textarea'); if (first && matchMedia('(pointer:fine)').matches) setTimeout(() => first.focus(), 30);
+  });
+}
+function busy(title) {
+  const d = $('#dialog'); $('#modal').hidden = false; $('#modal').onclick = null;
+  d.innerHTML = `<h2>${esc(title)}</h2><p id="busyMsg">רגע…</p><div class="progress"><i id="busyBar"></i></div>`;
+  return {
+    msg: t => { const m = d.querySelector('#busyMsg'); if (m) m.textContent = t; },
+    bar: f => { const b = d.querySelector('#busyBar'); if (b) b.style.width = Math.round(f * 100) + '%'; },
+    done: () => { $('#modal').hidden = true; d.innerHTML = ''; },
+    fail: e => { d.innerHTML = `<h2>${esc(title)} נכשל</h2><p>${esc(e?.message || String(e))}</p><div class="actions"><button class="btn" id="bClose">סגירה</button></div>`; d.querySelector('#bClose').onclick = () => $('#modal').hidden = true; },
+  };
+}
+
+/** Folder browser over OneDrive (phone) or the test store. Resolves {rel} or null. */
+function browseFolders(start) {
+  return new Promise(resolve => {
+    const d = $('#dialog'); let cur = start || '';
+    const close = v => { $('#modal').hidden = true; d.innerHTML = ''; resolve(v); };
+    async function show() {
+      d.innerHTML = `<h2>בחירת תיקיית התיק</h2><p class="path">OneDrive / ${esc(cur || '')}</p><div class="flist" id="fl"><span class="muted small" style="padding:12px">טוען…</span></div>
+        <div class="field"><label for="newDir">או תיקייה חדשה בתוך התיקייה הזו</label><input class="input" id="newDir" placeholder="שם תיקייה חדשה"></div>
+        <div class="actions"><button class="btn primary" id="fSel">בחירת התיקייה הזו</button>${cur ? '<button class="btn" id="fUp">תיקייה למעלה</button>' : ''}<button class="btn" id="fCancel">ביטול</button></div>`;
+      $('#modal').hidden = false; $('#modal').onclick = null;
+      d.querySelector('#fCancel').onclick = () => close(null);
+      d.querySelector('#fUp')?.addEventListener('click', () => { cur = cur.split('/').slice(0, -1).join('/'); show(); });
+      d.querySelector('#fSel').onclick = () => { const n = d.querySelector('#newDir').value.trim().replace(/[\\/:*?"<>|]/g, ' '); close({ rel: n ? (cur ? cur + '/' : '') + n : cur }); };
+      let dirs = [];
+      try { dirs = await Store.listDirs(cur); } catch (e) { d.querySelector('#fl').innerHTML = `<span class="small" style="padding:12px;color:var(--danger)">${esc(e.message)}</span>`; return; }
+      const fl = d.querySelector('#fl'); if (!fl) return;
+      fl.innerHTML = dirs.length ? dirs.map(n => `<button type="button" data-n="${esc(n)}">${svg('folder')}${esc(n)}</button>`).join('') : '<span class="muted small" style="padding:12px">אין תת-תיקיות</span>';
+      fl.onclick = e => { const b = e.target.closest('[data-n]'); if (b) { cur = (cur ? cur + '/' : '') + b.dataset.n; show(); } };
+    }
+    show();
+  });
+}
+
+/* ================= Home ================= */
+async function loadIndex() { const r = await readJSON(CFG.indexPath); S.index = r?.data?.props || []; }
+async function updateIndex(fn) {
+  for (let i = 0; i < 4; i++) {
+    const r = await readJSON(CFG.indexPath);
+    const props = r?.data?.props || []; fn(props);
+    const w = await writeJSON(CFG.indexPath, { app: 'plan-measure', props }, r?.version);
+    if (w.ok) { S.index = props; return true; }
+    await sleep(300 + Math.random() * 500);
+  }
+  toast('עדכון רשימת הנכסים נכשל'); return false;
+}
+function indexEntry(folder, d) {
+  const pg = (d.pages || []).slice().sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  return { folder, name: d.name, address: d.address || '', pageCount: pg.length, thumb: pg.find(p => p.img)?.img || null, updated: Date.now() };
+}
+const upsertIndex = (folder, d) => updateIndex(props => { const e = indexEntry(folder, d); const i = props.findIndex(p => p.folder === folder); if (i >= 0) props[i] = e; else props.push(e); });
+
+async function showHome() {
+  $('#editor').hidden = true; $('#login').hidden = true; $('#home').hidden = false;
+  try { await loadIndex(); } catch (e) { toast(e.message); }
+  renderHome();
+}
+function renderHome() {
+  const list = $('#plist');
+  const props = [...S.index].sort((a, b) => (b.updated || 0) - (a.updated || 0));
+  $('#homeEmpty').hidden = props.length > 0;
+  $('#scanRow').hidden = Store.kind !== 'desktop';
+  if (Store.kind === 'desktop') Desk.api.filetype_registered().then(ok => $('#assocRow').hidden = !!ok).catch(() => {});
+  list.innerHTML = props.map(p => `
+    <button class="pcard" data-folder="${esc(p.folder)}">
+      <div class="pthumb ${p.thumb ? '' : 'sketch'}" data-thumb="${esc(p.thumb || '')}">${p.thumb ? '' : '<span class="small">סקיצה</span>'}</div>
+      <div class="pmeta"><b>${esc(p.name || 'ללא שם')}</b><span>${esc(p.address || p.folder.split('/').slice(-2, -1)[0] || '—')}</span>
+      <span>${p.pageCount || 0} עמודים · עודכן ${p.updated ? new Date(p.updated).toLocaleDateString('he-IL') : '—'}</span></div>
+    </button>`).join('');
+  list.querySelectorAll('[data-thumb]').forEach(async el => { const id = el.dataset.thumb; if (!id) return; try { const u = await Store.imageUrl(id); if (u) el.style.backgroundImage = `url("${u}")`; } catch {} });
+}
+$('#plist').onclick = e => { const c = e.target.closest('[data-folder]'); if (c) openProp(c.dataset.folder); };
+
+async function newProperty() {
+  const pick = await Store.pickFolder();
+  if (!pick) return;
+  if (pick.error) return toast(pick.error, 4500);
+  let caseRel = pick.rel.replace(/\/+$/, '');
+  if (!caseRel) return toast('בחרי תיקיית תיק, לא את שורש ה-OneDrive');
+  // picking the measurements folder itself is fine too
+  if (caseRel.split('/').pop() === SUB) caseRel = caseRel.split('/').slice(0, -1).join('/');
+  const folder = (caseRel ? caseRel + '/' : '') + SUB;
+  let existing = null;
+  try { existing = await readProp(folder); } catch (e) { return toast(e.message); }
+  if (existing) { await upsertIndex(folder, existing.data); toast('נמצאו מדידות קיימות בתיקייה הזו'); return openProp(folder); }
+  const v = await dialog({ title: 'נכס חדש', text: 'המדידות יישמרו בתיקייה:<br><span class="path">' + esc(folder) + '</span>', ok: 'יצירה', fields: [
+    { id: 'name', label: 'שם הנכס / תיק', value: caseRel.split('/').pop() || '' },
+    { id: 'address', label: 'כתובת / גוש-חלקה (לא חובה)' },
+  ]});
+  if (!v) return;
+  const data = { app: 'plan-measure', v: 1, name: v.name.trim() || 'נכס', address: v.address.trim(), notes: '', created: Date.now(), pages: [] };
+  try {
+    const w = await writeJSON(dataPath(folder), data, null);
+    if (!w.ok) throw new Error('לא ניתן ליצור את קובץ המדידות');
+    await upsertIndex(folder, data);
+  } catch (e) { return toast(e.message, 5000); }
+  openProp(folder);
+}
+$('#newProp').onclick = newProperty; $('#newProp2').onclick = newProperty;
+
+/** Computer only: finds every measurements folder under the cases folder and puts missing ones back on the list. */
+async function scanFolders() {
+  const b = busy('מחפש מדידות בתיקיות התיקים');
+  try {
+    b.msg('סורק את התיקיות. זה יכול לקחת דקה…');
+    const found = await Desk.api.scan();
+    const missing = found.filter(f => !S.index.find(p => p.folder === f));
+    const datas = [];
+    for (const f of missing) { const r = await readProp(f).catch(() => null); if (r) datas.push([f, r.data]); }
+    if (datas.length) await updateIndex(props => datas.forEach(([f, d]) => { if (!props.find(p => p.folder === f)) props.push(indexEntry(f, d)); }));
+    b.done(); renderHome();
+    toast(datas.length ? `נוספו לרשימה ${datas.length} נכסים` : 'כל הנכסים שנמצאו כבר ברשימה', 4000);
+  } catch (e) { b.fail(e); }
+}
+$('#scanBtn').onclick = scanFolders;
+$('#assocBtn').onclick = async () => {
+  const r = await Desk.api.register_filetype().catch(e => ({ error: e.message }));
+  if (r?.error) return toast('הקישור לא הצליח: ' + r.error, 6000);
+  $('#assocRow').hidden = true;
+  toast('מעכשיו לחיצה כפולה על "מדידות.tsm" פותחת את הנכס בתוכנה', 5000);
+};
+
+/* ================= Property ================= */
+async function openProp(folder) {
+  let r;
+  try { r = await readProp(folder); } catch (e) { return toast(e.message, 5000); }
+  if (!r) {
+    const ok = await dialog({ title: 'קובץ המדידות לא נמצא', text: 'ייתכן שהתיקייה הועברה או נמחקה, או שהיא עוד לא סונכרנה ל-OneDrive.<br><span class="path">' + esc(folder) + '</span>', ok: 'הסרה מהרשימה', cancel: 'סגירה' });
+    if (ok) { await updateIndex(p => { const i = p.findIndex(x => x.folder === folder); if (i >= 0) p.splice(i, 1); }); renderHome(); }
+    return;
+  }
+  S.folder = folder; S.prop = r.data; S.prop.pages ||= []; S.propVer = r.version;
+  S.pageId = null; S.page = null; S.selId = null; S.draft = null; S.undo = []; S.dirty = false;
+  $('#home').hidden = true; $('#editor').hidden = false;
+  setSync('', 'נשמר');
+  try { localStorage.setItem('pm.last', folder); } catch {}
+  renderHeader();
+  const first = pages()[0]; if (first) loadPage(first.id); else { renderAll(); }
+  setTimeout(resize, 0);
+  reportIfStale();   // e.g. after measurements were added on the phone
+}
+function renderHeader() { $('#eName').textContent = S.prop?.name || ''; $('#eAddr').textContent = S.prop?.address || S.folder?.split('/').slice(-2, -1)[0] || ''; }
+function renderAll() { renderPages(); renderTools(); renderPanel(); $('#stageEmpty').hidden = pages().length > 0; draw(); }
+
+/** Picks up changes saved on another device (phone <-> computer). */
+async function pollRemote() {
+  if (!S.prop || S.dirty || S.saving || S.draft || document.hidden || !$('#modal').hidden || gesture) return;
+  let v; try { v = await Store.stat(dataPath(S.folder)); } catch { return; }
+  if (!v || v === S.propVer || S.dirty || S.saving) return;
+  const r = await readJSON(dataPath(S.folder)).catch(() => null); if (!r || S.dirty || S.saving) return;
+  const keepId = S.pageId, oldImg = S.page?.img;
+  S.prop = r.data; S.prop.pages ||= []; S.propVer = r.version; S.undo = [];
+  const pg = S.prop.pages.find(p => p.id === keepId) || pages()[0];
+  if (pg) {
+    S.pageId = pg.id; S.page = pg;
+    migratePage(pg);
+    if (S.selId && !findSel()) S.selId = null;
+    if (pg.img !== oldImg) loadPage(pg.id);
+  } else { S.pageId = null; S.page = null; S.img = null; }
+  renderHeader(); renderAll();
+  toast('התעדכן ממכשיר אחר');
+  reportSoon(5000);
+}
+setInterval(pollRemote, 5000);
+
+/* ================= Pages ================= */
+function loadPage(id) {
+  const p = S.prop.pages.find(x => x.id === id); if (!p) return;
+  p.shapes ||= [];
+  if (migratePage(p)) markDirty(false);
+  S.page = p; S.pageId = p.id; S.selId = null; S.draft = null; S.undo = []; S.placing = null;
+  S.ortho = false;   // any angle; the ∟ button turns on 45°/90° steps
+  if (p.kind === 'sketch' && S.tool === 'scale') S.tool = 'pan';
+  S.img = null;
+  if (p.img) {
+    const want = p.img;
+    Store.imageUrl(want).then(u => {
+      if (!u) return toast('תמונת התשריט לא נמצאה בתיקייה');
+      const im = new Image(); im.decoding = 'async';
+      im.onload = () => { if (S.page?.img === want) { S.img = im; fit(); } };
+      im.onerror = () => toast('לא ניתן לטעון את תמונת התשריט');
+      im.src = u;
+    }).catch(e => toast(e.message));
+  }
+  fit(); renderAll();
+}
+function renderPages() {
+  $('#pages').innerHTML = pages().map(p => `<button class="ptab" role="tab" aria-selected="${p.id === S.pageId}" data-pg="${esc(p.id)}">${esc(p.name || 'עמוד')}${p.kind === 'sketch' ? ' <small>סקיצה</small>' : ''}</button>`).join('')
+    + `<button class="ptab" id="addPage" aria-label="הוספת עמוד">+ עמוד</button>`;
+}
+$('#pages').onclick = e => {
+  if (e.target.closest('#addPage')) return addPageFlow();
+  const t = e.target.closest('[data-pg]'); if (!t) return;
+  if (t.dataset.pg === S.pageId) return pageMenu();
+  loadPage(t.dataset.pg);
+};
+$('#stageEmpty').onclick = e => { const a = e.target.closest('[data-act]'); if (!a) return; if (a.dataset.act === 'upload') importPlans(); else createSketch(); };
+
+function addPageFlow() {
+  dialog({ title: 'הוספת עמוד', text: 'כל עמוד הוא קומה או תשריט נפרד של אותו נכס.', ok: '', cancel: 'סגירה',
+    html: `<div class="choice"><button type="button" data-c="up">${svg('upload')}<b>העלאת תשריט</b><small>תמונה או PDF (עמוד לכל דף)</small></button><button type="button" data-c="sk">${svg('sketch')}<b>סקיצה חדשה</b><small>ציור הנכס בשטח, ללא תשריט</small></button></div>`,
+    onOpen: (dl, close) => dl.querySelector('.choice').onclick = e => { const b = e.target.closest('[data-c]'); if (!b) return; close(null); b.dataset.c === 'up' ? importPlans() : createSketch(); } });
+}
+const nextOrder = () => (S.prop.pages || []).reduce((m, p) => Math.max(m, p.order ?? 0), 0) + 1;
+
+async function createSketch() {
+  const v = await dialog({ title: 'סקיצה חדשה', ok: 'יצירה', fields: [{ id: 'name', label: 'שם העמוד', value: 'קומה ' + (S.prop.pages.length + 1) }] });
+  if (!v) return;
+  const p = { id: uid(), name: v.name.trim() || 'סקיצה', kind: 'sketch', img: null, w: null, h: null, dpi: null, scale: { pxPerM: 100, how: 'sketch' }, shapes: [], order: nextOrder(), created: Date.now() };
+  S.prop.pages.push(p); markDirty(false); structuralChange();
+  S.tool = 'area'; loadPage(p.id);
+}
+
+/* --- plan import: the computer converts with Python, the phone converts here --- */
+const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
+async function ensurePdf() {
+  if (window.pdfjsLib) return;
+  await loadScript(PDFJS + 'pdf.min.js');
+  pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS + 'pdf.worker.min.js';
+}
+function canvasToBlob(c, q = 0.88) { return new Promise(r => c.toBlob(r, 'image/jpeg', q)); }
+const MAXPX = 4200;
+async function imageToParts(file) {
+  const url = URL.createObjectURL(file);
+  const im = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('לא ניתן לקרוא את התמונה ' + file.name)); i.src = url; });
+  const k = Math.min(1, MAXPX / Math.max(im.naturalWidth, im.naturalHeight));
+  const c = document.createElement('canvas'); c.width = Math.round(im.naturalWidth * k); c.height = Math.round(im.naturalHeight * k);
+  const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.drawImage(im, 0, 0, c.width, c.height);
+  URL.revokeObjectURL(url);
+  return [{ blob: await canvasToBlob(c), w: c.width, h: c.height, dpi: null, name: file.name.replace(/\.[^.]+$/, '') }];
+}
+async function pdfToParts(file, msg) {
+  await ensurePdf();
+  const pdf = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+  const out = [];
+  for (let i = 1; i <= pdf.numPages; i++) {
+    msg(`ממיר עמוד ${i} מתוך ${pdf.numPages}`);
+    const pg = await pdf.getPage(i);
+    const v1 = pg.getViewport({ scale: 1 });
+    const sc = Math.min(300 / 72, MAXPX / Math.max(v1.width, v1.height));
+    const v = pg.getViewport({ scale: sc });
+    const c = document.createElement('canvas'); c.width = Math.round(v.width); c.height = Math.round(v.height);
+    const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height);
+    await pg.render({ canvasContext: x, viewport: v }).promise;
+    out.push({ blob: await canvasToBlob(c), w: c.width, h: c.height, dpi: sc * 72, name: pdf.numPages > 1 ? 'עמוד ' + i : file.name.replace(/\.[^.]+$/, '') });
+    pg.cleanup();
+  }
+  return out;
+}
+async function importPlans() {
+  if (Store.kind === 'desktop') {
+    const paths = await Desk.api.pick_plans(); if (!paths.length) return;
+    const b = busy('מוסיף תשריטים'); const added = [];
+    try {
+      for (let i = 0; i < paths.length; i++) {
+        b.msg('ממיר את ' + paths[i].split(/[\\/]/).pop()); b.bar(i / paths.length);
+        const parts = await Desk.api.import_plan(paths[i], S.folder, uid());
+        parts.forEach(pt => added.push(pt));
+      }
+      b.done();
+    } catch (e) { return b.fail(e); }
+    return addPlanPages(added);
+  }
+  const f = $('#file'); f.value = ''; f.click();
+}
+$('#file').onchange = async e => {
+  const files = [...e.target.files]; if (!files.length) return;
+  const b = busy('מעלה תשריטים'); const added = [];
+  try {
+    for (let fi = 0; fi < files.length; fi++) {
+      const file = files[fi]; b.msg('קורא את ' + file.name);
+      const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+      const parts = isPdf ? await pdfToParts(file, b.msg) : await imageToParts(file);
+      for (let pi = 0; pi < parts.length; pi++) {
+        const part = parts[pi], id = uid(), img = `${S.folder}/תשריט-${id}.jpg`;
+        b.msg(`מעלה ${part.name} (${(part.blob.size / 1048576).toFixed(1)} MB)`);
+        await Store.writeBlob(img, part.blob);
+        added.push({ id, img, w: part.w, h: part.h, dpi: part.dpi, name: part.name });
+        b.bar((fi + (pi + 1) / parts.length) / files.length);
+      }
+    }
+    b.done();
+  } catch (err) { console.error(err); return b.fail(err); }
+  addPlanPages(added);
+};
+function addPlanPages(added) {
+  if (!added.length) return;
+  let order = nextOrder();
+  added.forEach(a => S.prop.pages.push({ id: a.id, name: a.name || ('קומה ' + order), kind: 'plan', img: a.img, w: a.w, h: a.h, dpi: a.dpi, scale: null, shapes: [], order: order++, created: Date.now() }));
+  markDirty(false); structuralChange();
+  S.tool = 'scale'; loadPage(added[0].id);
+  toast(added.length === 1 ? 'התשריט נוסף. התחילי בכיול קנה מידה.' : `נוספו ${added.length} עמודים. התחילי בכיול קנה מידה.`, 4000);
+}
+
+async function pageMenu() {
+  const p = S.page; if (!p) return;
+  const v = await dialog({ title: 'הגדרות עמוד', ok: 'שמירה', fields: [{ id: 'name', label: 'שם העמוד (למשל: קומת קרקע)', value: p.name }],
+    html: `<div class="row"><button type="button" class="btn sm" id="pgLeft">הזזה ימינה ›</button><button type="button" class="btn sm" id="pgRight">‹ הזזה שמאלה</button><span class="grow"></span><button type="button" class="btn sm danger" id="pgDel">מחיקת העמוד</button></div>`,
+    onOpen: (dl, close) => {
+      dl.querySelector('#pgDel').onclick = () => { close(null); deletePage(); };
+      dl.querySelector('#pgLeft').onclick = () => { close(null); movePage(-1); };
+      dl.querySelector('#pgRight').onclick = () => { close(null); movePage(1); };
+    } });
+  if (!v) return;
+  p.name = v.name.trim() || p.name; markDirty(); renderPages();
+}
+function movePage(dir) {
+  const arr = pages(), i = arr.findIndex(p => p.id === S.pageId), j = i + dir;
+  if (j < 0 || j >= arr.length) return;
+  [arr[i], arr[j]] = [arr[j], arr[i]];
+  arr.forEach((p, n) => p.order = n + 1);
+  markDirty(); renderPages();
+}
+async function deletePage() {
+  const ok = await dialog({ title: 'למחוק את העמוד?', text: `העמוד "${esc(S.page.name)}" וכל המדידות שבו יימחקו מהקובץ. תמונת התשריט נשארת בתיקייה.`, ok: 'מחיקה', danger: true });
+  if (!ok) return;
+  S.prop.pages = S.prop.pages.filter(p => p.id !== S.pageId);
+  S.page = null; S.pageId = null; S.img = null;
+  markDirty(false); structuralChange();
+  const first = pages()[0]; if (first) loadPage(first.id); else renderAll();
+}
+$('#propMenu').onclick = async () => {
+  const p = S.prop; if (!p) return;
+  const desk = Store.kind === 'desktop';
+  const v = await dialog({ title: 'פרטי הנכס', fields: [
+    { id: 'name', label: 'שם הנכס', value: p.name }, { id: 'address', label: 'כתובת / גוש-חלקה', value: p.address },
+    { id: 'notes', label: 'הערות ביקור', type: 'textarea', value: p.notes || '' } ],
+    html: `<p class="path">${esc(S.folder)}</p><div class="row">${desk ? '<button type="button" class="btn sm" id="openDir">פתיחת התיקייה</button>' : ''}<span class="grow"></span><button type="button" class="btn sm danger" id="propDel">הסרה מהרשימה</button></div>`,
+    onOpen: (dl, close) => {
+      dl.querySelector('#propDel').onclick = () => { close(null); removeProp(); };
+      dl.querySelector('#openDir')?.addEventListener('click', () => Desk.openFolder(S.folder));
+    } });
+  if (!v) return;
+  p.name = v.name.trim() || p.name; p.address = v.address.trim(); p.notes = v.notes;
+  markDirty(false); structuralChange(); renderHeader();
+};
+async function removeProp() {
+  const ok = await dialog({ title: 'להסיר את הנכס מהרשימה?', text: `"${esc(S.prop.name)}" לא יופיע ברשימת הנכסים. הקבצים עצמם נשארים בתיקיית התיק, ואפשר להחזיר אותו דרך "נכס חדש" ובחירת אותה תיקייה.`, ok: 'הסרה', danger: true });
+  if (!ok) return;
+  const folder = S.folder; await flushSave();
+  await updateIndex(p => { const i = p.findIndex(x => x.folder === folder); if (i >= 0) p.splice(i, 1); });
+  goHome();
+}
+async function goHome() {
+  await flushSave();
+  if (S.reportDirty && Store.kind === 'desktop') { clearTimeout(S.reportTimer); toast('מעדכן את דוח ה-PDF בתיקיית המדידות…'); await makeReport(true); }
+  S.prop = null; S.folder = null; S.page = null;
+  try { localStorage.removeItem('pm.last'); } catch {}
+  showHome();
+}
+$('#back').onclick = goHome;
+
+/* ================= Saving ================= */
+let indexTimer;
+function structuralChange() { clearTimeout(indexTimer); const f = S.folder; indexTimer = setTimeout(() => { if (S.prop && S.folder === f) upsertIndex(f, S.prop); }, 1500); }
+function markDirty(redraw = true) {
+  S.dirty = true; setSync('saving', 'שומר…');
+  clearTimeout(S.saveTimer); S.saveTimer = setTimeout(doSave, 800);
+  reportSoon();
+  if (redraw) { draw(); renderSummarySoon(); }
+}
+async function doSave() {
+  if (!S.prop || !S.folder) return;
+  if (S.saving) { S.saveTimer = setTimeout(doSave, 400); return; }
+  S.saving = true; S.dirty = false;
+  const folder = S.folder, data = S.prop;
+  data.updated = Date.now();
+  try {
+    let w = await writeJSON(dataPath(folder), data, S.propVer);
+    if (w.conflict) {
+      // the file changed on another device while we were editing: keep their version as a backup, then save ours
+      const theirs = await Store.read(dataPath(folder));
+      if (theirs) await Store.write(`${folder}/מדידות - גיבוי ${new Date().toISOString().slice(0, 16).replace(/[T:]/g, '-')}.json`, theirs.text, null);
+      w = await writeJSON(dataPath(folder), data, w.version);
+      toast('הקובץ שונה במכשיר אחר בזמן העבודה. הגרסה השנייה נשמרה כגיבוי בתיקייה.', 6000);
+    }
+    if (!w.ok) throw new Error('השמירה נכשלה');
+    if (S.folder === folder) S.propVer = w.version;
+    setSync('', 'נשמר');
+  } catch (e) {
+    console.error(e); S.dirty = true;
+    setSync('err', navigator.onLine === false ? 'אין חיבור, אנסה שוב' : 'השמירה נכשלה, אנסה שוב');
+    S.saveTimer = setTimeout(doSave, 5000);
+  } finally { S.saving = false; }
+}
+async function flushSave() { if (S.dirty) { clearTimeout(S.saveTimer); await doSave(); } while (S.saving) await sleep(100); }
+window.addEventListener('pagehide', () => { if (S.dirty) doSave(); });
+document.addEventListener('visibilitychange', () => { if (document.hidden && S.dirty) doSave(); });
+window.addEventListener('beforeunload', e => { if (S.dirty || S.saving) { e.preventDefault(); e.returnValue = ''; } });
+
+function snapshot() { const p = S.page; return JSON.stringify({ shapes: p.shapes, scale: p.scale, edges: p.edges || [], faces: p.faces || [] }); }
+function pushUndo() { if (!S.page) return; S.undo.push(snapshot()); if (S.undo.length > 120) S.undo.shift(); }
+function undo() {
+  const d = S.draft;
+  if (d && d.t !== 'chain' && d.pts.length) { d.pts.pop(); if (!d.pts.length) S.draft = null; renderCtx(); draw(); return; }
+  const u = S.undo.pop(); if (!u) return toast('אין מה לבטל');
+  Object.assign(S.page, JSON.parse(u)); bump(S.page);
+  if (d && d.t === 'chain') { d.pts.pop(); if (d.pts.length < 1) S.draft = null; }
+  if (S.selId && !findSel()) S.selId = null;
+  markDirty(); renderPanel();
+}
+$('#undo').onclick = undo;
+
+/* ================= Lines → areas =================
+   Walls are stored as line segments (page.edges). Every new line is split where it meets existing lines,
+   and areas are the closed loops the lines form (like SketchUp). Names, types and field measurements of an
+   area live in page.faces, each anchored to a point inside the area, so they follow it through edits. */
+const EPS = 0.6;
+const kOf = p => p[0] + ',' + p[1];
+const layerOf = e => e.m === 'gross' ? 'gross' : 'net';
+const visibleLayer = m => S.show === 'all' || S.show === m;
+function bump(pg) { pg._v = (pg._v || 1) + 1; }
+const crs = (ax, ay, bx, by) => ax * by - ay * bx;
+
+/** Points where segment ab meets segment cd (one crossing, or the overlap ends when collinear). */
+function segHits(a, b, c, d) {
+  const rx = b[0] - a[0], ry = b[1] - a[1], sx = d[0] - c[0], sy = d[1] - c[1], den = crs(rx, ry, sx, sy), out = [];
+  const L1 = Math.hypot(rx, ry), L2 = Math.hypot(sx, sy);
+  if (!L1 || !L2) return out;
+  if (Math.abs(den) > 1e-9 * L1 * L2) {
+    const t = crs(c[0] - a[0], c[1] - a[1], sx, sy) / den, u = crs(c[0] - a[0], c[1] - a[1], rx, ry) / den;
+    if (t > -EPS / L1 && t < 1 + EPS / L1 && u > -EPS / L2 && u < 1 + EPS / L2) {
+      let p = [r1(a[0] + t * rx), r1(a[1] + t * ry)];
+      for (const q of [a, b, c, d]) if (dist(q, p) < EPS) p = q.slice();
+      out.push(p);
+    }
+  } else if (segDist(c, a, b) < EPS || segDist(d, a, b) < EPS || segDist(a, c, d) < EPS) {
+    for (const q of [c, d]) if (segDist(q, a, b) < EPS) out.push(q.slice());
+    for (const q of [a, b]) if (segDist(q, c, d) < EPS) out.push(q.slice());
+  }
+  return out;
+}
+/** Pieces of segment ab after cutting it at the given points. */
+function splitAt(a, b, pts) {
+  const L = dist(a, b), ts = [[0, a], [1, b]];
+  pts.forEach(p => { const t = ((p[0] - a[0]) * (b[0] - a[0]) + (p[1] - a[1]) * (b[1] - a[1])) / (L * L); if (t > EPS / L && t < 1 - EPS / L) ts.push([t, p]); });
+  ts.sort((x, y) => x[0] - y[0]);
+  const out = [];
+  for (let i = 1; i < ts.length; i++) if (dist(ts[i - 1][1], ts[i][1]) >= EPS) out.push([ts[i - 1][1], ts[i][1]]);
+  return out;
+}
+function addSegment(pg, A, B, m, arc) {
+  A = [r1(A[0]), r1(A[1])]; B = [r1(B[0]), r1(B[1])];
+  if (dist(A, B) < EPS) return;
+  pg.edges ||= [];
+  const keep = [], hitsAB = [];
+  for (const e of pg.edges) {
+    if (layerOf(e) !== m) { keep.push(e); continue; }
+    const xs = segHits(A, B, e.a, e.b);
+    if (!xs.length) { keep.push(e); continue; }
+    xs.forEach(x => hitsAB.push(x));
+    splitAt(e.a, e.b, xs).forEach(([p, q], i) => keep.push(i === 0 ? { ...e, a: p, b: q } : { ...e, id: uid(), a: p, b: q }));
+  }
+  splitAt(A, B, hitsAB).forEach(([p, q]) => keep.push(arc ? { id: uid(), a: p, b: q, m, arc } : { id: uid(), a: p, b: q, m }));
+  const seen = new Set();   // a new piece lying exactly on an old line is dropped
+  pg.edges = keep.filter(e => { if (layerOf(e) !== m) return true; const k = [kOf(e.a), kOf(e.b)].sort().join('|'); if (seen.has(k)) return false; seen.add(k); return true; });
+  bump(pg);
+}
+function interiorPoint(pts) {
+  const c = centroid(pts); if (inPoly(c, pts)) return [r1(c[0]), r1(c[1])];
+  const xs = []; const y = c[1];
+  for (let i = 0; i < pts.length; i++) { const a = pts[i], b = pts[(i + 1) % pts.length]; if ((a[1] > y) !== (b[1] > y)) xs.push(a[0] + (y - a[1]) * (b[0] - a[0]) / (b[1] - a[1])); }
+  xs.sort((p, q) => p - q);
+  let best = null; for (let i = 0; i + 1 < xs.length; i += 2) if (!best || xs[i + 1] - xs[i] > best[1] - best[0]) best = [xs[i], xs[i + 1]];
+  return best ? [r1((best[0] + best[1]) / 2), r1(y)] : [r1(c[0]), r1(c[1])];
+}
+/** Points of a circular arc from A to B that bulges through the side of P (SketchUp's 2-point arc). */
+function arcPoints(A, B, P) {
+  const c = dist(A, B); if (c < EPS) return [A, B];
+  const M = [(A[0] + B[0]) / 2, (A[1] + B[1]) / 2], n = [-(B[1] - A[1]) / c, (B[0] - A[0]) / c];
+  const h = (P[0] - M[0]) * n[0] + (P[1] - M[1]) * n[1];
+  if (Math.abs(h) < c * 0.01) return [A, B];
+  const r = (h * h + c * c / 4) / (2 * Math.abs(h)), C = [M[0] + n[0] * (h - Math.sign(h) * r), M[1] + n[1] * (h - Math.sign(h) * r)];
+  const a0 = Math.atan2(A[1] - C[1], A[0] - C[0]), a1 = Math.atan2(B[1] - C[1], B[0] - C[0]);
+  const apex = [M[0] + n[0] * h, M[1] + n[1] * h], am = Math.atan2(apex[1] - C[1], apex[0] - C[0]);
+  const norm = x => ((x % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+  let sweep = norm(a1 - a0); if (norm(am - a0) > sweep) sweep -= 2 * Math.PI;   // go the way that passes the apex
+  const N = Math.max(8, Math.ceil(Math.abs(sweep) / (Math.PI / 36)));            // a segment every 5°
+  const pts = [A];
+  for (let i = 1; i < N; i++) { const t = a0 + sweep * i / N; pts.push([r1(C[0] + r * Math.cos(t)), r1(C[1] + r * Math.sin(t))]); }
+  pts.push(B); return pts;
+}
+/** All wall lines that belong to the same arc (an arc is stored as short straight pieces). */
+const arcGroup = (pg, e) => e.arc ? (pg.edges || []).filter(x => x.arc === e.arc) : [e];
+const groupLen = g => g.reduce((t, e) => t + dist(e.a, e.b), 0);
+/** Older files kept each area as a closed shape; turn those into lines once. */
+function migratePage(pg) {
+  pg.shapes ||= []; pg.edges ||= []; pg.faces ||= [];
+  let changed = false;
+  const gross = pg.edges.filter(e => e.m === 'gross');
+  if (gross.length) { pg.edges = pg.edges.filter(e => e.m !== 'gross'); gross.forEach(e => addSegment(pg, e.a, e.b, 'net')); changed = true; }
+  if (pg.faces.some(a => a.m === 'gross')) { pg.faces = pg.faces.filter(a => a.m !== 'gross'); changed = true; }
+  const polys = pg.shapes.filter(s => s.t === 'poly');
+  if (!polys.length) { if (changed) bump(pg); return changed; }
+  polys.forEach(s => {
+    s.pts.forEach((p, i) => addSegment(pg, p, s.pts[(i + 1) % s.pts.length], 'net'));
+    if (s.m !== 'gross') pg.faces.push({ id: s.id, m: 'net', pt: interiorPoint(s.pts), name: s.name || '', cat: s.cat || 'main', measured: s.measured || '' });
+  });
+  pg.shapes = pg.shapes.filter(s => s.t !== 'poly');
+  bump(pg); return true;
+}
+/** All closed areas formed by the lines of a page, per layer, with their details attached. */
+function computeFaces(pg) {
+  pg._v ||= 1;
+  if (pg._fc && pg._fc.v === pg._v) return pg._fc.faces;
+  const faces = [];
+  for (const m of ['net', 'gross']) {
+    let E = (pg.edges || []).filter(e => layerOf(e) === m).map(e => [kOf(e.a), kOf(e.b), e.a, e.b]).filter(x => x[0] !== x[1]);
+    for (;;) {   // lines with a loose end can't bound an area
+      const deg = {}; E.forEach(([p, q]) => { deg[p] = (deg[p] || 0) + 1; deg[q] = (deg[q] || 0) + 1; });
+      const n = E.filter(([p, q]) => deg[p] > 1 && deg[q] > 1); if (n.length === E.length) break; E = n;
+    }
+    const P = {}, adj = {};
+    E.forEach(([p, q, a, b]) => { P[p] = a; P[q] = b; (adj[p] ||= []).push(q); (adj[q] ||= []).push(p); });
+    for (const k in adj) { const o = P[k]; adj[k].sort((x, y) => Math.atan2(P[x][1] - o[1], P[x][0] - o[0]) - Math.atan2(P[y][1] - o[1], P[y][0] - o[0])); }
+    const used = new Set();
+    for (const [p, q] of E) for (const [u0, v0] of [[p, q], [q, p]]) {
+      if (used.has(u0 + '>' + v0)) continue;
+      const cyc = []; let u = u0, v = v0, guard = 0;
+      while (!used.has(u + '>' + v) && guard++ < 20000) {
+        used.add(u + '>' + v); cyc.push(P[u]);
+        const L = adj[v], i = L.indexOf(u); const w = L[(i - 1 + L.length) % L.length];
+        u = v; v = w;
+      }
+      if (cyc.length < 3) continue;
+      let s = 0; for (let i = 0; i < cyc.length; i++) { const a = cyc[i], b = cyc[(i + 1) % cyc.length]; s += a[0] * b[1] - b[0] * a[1]; }
+      if (s > 1) faces.push({ m, pts: cyc, area2: s });
+    }
+  }
+  faces.sort((a, b) => a.area2 - b.area2);
+  const attrs = pg.faces || [], taken = new Set();
+  for (const f of faces) {
+    f.attr = attrs.find(a => !taken.has(a.id) && (a.m === 'gross' ? 'gross' : 'net') === f.m && inPoly(a.pt, f.pts)) || null;
+    if (f.attr) taken.add(f.attr.id);
+    f.key = f.m + ':' + f.pts.map(kOf).sort()[0] + ':' + Math.round(f.area2);
+  }
+  for (const f of faces) f.ip = interiorPoint(f.pts);
+  for (const f of faces) f.parent = faces.filter(g => g !== f && g.area2 > f.area2 && inPoly(f.ip, g.pts)).sort((a, b) => a.area2 - b.area2)[0] || null;
+  for (const f of faces) { f.children = faces.filter(g => g.parent === f); f.own2 = f.area2 - f.children.reduce((t, c) => t + c.area2, 0); }
+  pg._fc = { v: pg._v, faces };
+  return faces;
+}
+function ensureAttr(pg, f) {
+  if (f.attr) return f.attr;
+  const a = { id: uid(), m: f.m, pt: f.children?.length ? ringPoint(f) : interiorPoint(f.pts), name: '', cat: S.lastCat, measured: '' };
+  (pg.faces ||= []).push(a); f.attr = a; return a;
+}
+const faceCat = f => f.children?.length ? 'walls' : f.attr?.cat || 'main';
+/** A point inside an outline but outside the rooms it holds (where its details are anchored). */
+function ringPoint(f) {
+  const out = q => inPoly(q, f.pts) && !f.children.some(c => inPoly(q, c.pts));
+  for (let i = 0; i < f.pts.length; i++) {
+    const a = f.pts[i], b = f.pts[(i + 1) % f.pts.length], m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], L = dist(a, b) || 1;
+    const n = [-(b[1] - a[1]) / L, (b[0] - a[0]) / L];
+    for (const d of [1, 2, 4, 8]) for (const sg of [1, -1]) { const q = [r1(m[0] + n[0] * d * sg), r1(m[1] + n[1] * d * sg)]; if (out(q)) return q; }
+  }
+  return interiorPoint(f.pts);
+}
+/** Removes the lines that belong only to this area (shared walls stay for the neighbouring area). */
+function removeFace(pg, f) {
+  const cnt = {}; computeFaces(pg).filter(g => g.m === f.m).forEach(g => g.pts.forEach((p, i) => { const k = [kOf(p), kOf(g.pts[(i + 1) % g.pts.length])].sort().join('|'); cnt[k] = (cnt[k] || 0) + 1; }));
+  const mine = new Set(f.pts.map((p, i) => [kOf(p), kOf(f.pts[(i + 1) % f.pts.length])].sort().join('|')).filter(k => cnt[k] === 1));
+  pg.edges = pg.edges.filter(e => layerOf(e) !== f.m || !mine.has([kOf(e.a), kOf(e.b)].sort().join('|')));
+  if (f.attr) pg.faces = pg.faces.filter(a => a !== f.attr);
+  bump(pg);
+}
+
+/* ================= Selection ================= */
+// S.selId: a shape id (measure line / note / pen), 'e:<edge id>' for one wall line, 'f:<details id>' for an area
+function findSel() {
+  const id = S.selId, pg = S.page; if (!id || !pg) return null;
+  if (id.startsWith('e:')) { const e = (pg.edges || []).find(x => x.id === id.slice(2)); return e ? { kind: 'edge', e } : null; }
+  if (id.startsWith('f:')) { const a = (pg.faces || []).find(x => x.id === id.slice(2)); const f = a && computeFaces(pg).find(x => x.attr === a); return f ? { kind: 'face', f, a } : null; }
+  const s = pg.shapes.find(x => x.id === id); return s ? { kind: 'shape', s } : null;
+}
+function selectFace(f, fromUser = true) { const a = ensureAttr(S.page, f); S.selId = 'f:' + a.id; renderPanel(fromUser ? true : undefined); draw(); }
+function selectById(id) {
+  if (id.startsWith('fk:')) { const f = computeFaces(S.page).find(x => x.key === id.slice(3)); if (f) selectFace(f); return; }
+  S.selId = id; renderPanel(true); draw();
+}
+function deleteSel() {
+  const sel = findSel(); if (!sel) return;
+  pushUndo();
+  if (sel.kind === 'shape') S.page.shapes = S.page.shapes.filter(x => x !== sel.s);
+  else if (sel.kind === 'edge') { const g = new Set(arcGroup(S.page, sel.e)); S.page.edges = S.page.edges.filter(x => !g.has(x)); bump(S.page); }
+  else removeFace(S.page, sel.f);
+  S.selId = null; markDirty(); renderPanel(false);
+}
+
+/* ================= Canvas / view ================= */
+const cv = $('#cv'), ctx = cv.getContext('2d'), stage = $('#stage');
+let W = 0, H = 0, dpr = 1;
+function resize() {
+  const r = stage.getBoundingClientRect(); if (!r.width) return;
+  const oldW = W, oldH = H;
+  dpr = Math.min(window.devicePixelRatio || 1, 3); W = r.width; H = r.height;
+  cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+  document.documentElement.style.setProperty('--tools-h', $('#tools').offsetHeight + 'px');
+  // keep the plan fitted until the user moves it; afterwards keep the same point in the middle
+  if (S.autoFit || !oldW) return fit();
+  S.V.tx += (W - oldW) / 2; S.V.ty += (H - oldH) / 2;
+  draw();
+}
+new ResizeObserver(resize).observe(stage);
+const w2s = p => [p[0] * S.V.s + S.V.tx, p[1] * S.V.s + S.V.ty];
+const s2w = p => [(p[0] - S.V.tx) / S.V.s, (p[1] - S.V.ty) / S.V.s];
+function shapeBounds(pg, pad) {
+  const pts = [];
+  pg.shapes.forEach(s => (s.pts || [s.a, s.b, s.p].filter(Boolean)).forEach(p => pts.push(p)));
+  (pg.edges || []).forEach(e => pts.push(e.a, e.b));
+  if (!pts.length) return null;
+  const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+  return [Math.min(...xs) - pad, Math.min(...ys) - pad, Math.max(...xs) + pad, Math.max(...ys) + pad];
+}
+function fit() {
+  if (!W || !S.page) return draw();
+  const b = S.page.kind === 'plan' && S.page.w ? [0, 0, S.page.w, S.page.h] : shapeBounds(S.page, 150) || [-600, -600, 600, 600];
+  const m = 24, s = Math.min((W - m * 2) / (b[2] - b[0]), (H - m * 2) / (b[3] - b[1]));
+  S.V.s = s; S.V.tx = (W - (b[2] - b[0]) * s) / 2 - b[0] * s; S.V.ty = (H - (b[3] - b[1]) * s) / 2 - b[1] * s;
+  S.autoFit = true;
+  draw();
+}
+function zoomAt(sx, sy, f) {
+  S.autoFit = false;
+  const ns = Math.max(0.005, Math.min(80, S.V.s * f)); f = ns / S.V.s;
+  S.V.tx = sx - (sx - S.V.tx) * f; S.V.ty = sy - (sy - S.V.ty) * f; S.V.s = ns; draw();
+}
+$('#zin').onclick = () => zoomAt(W / 2, H / 2, 1.4);
+$('#zout').onclick = () => zoomAt(W / 2, H / 2, 1 / 1.4);
+$('#zfit').onclick = fit;
+$('#fillMode').onclick = () => {
+  S.fill = { full: 'outline', outline: 'lines', lines: 'full' }[S.fill];
+  try { localStorage.setItem('pm.fill', S.fill); } catch {}
+  $('#fillMode').classList.toggle('on', S.fill !== 'full');
+  toast('תצוגה: ' + FILL_NAMES[S.fill]); draw();
+};
+$('#fillMode').classList.toggle('on', S.fill !== 'full');
+$('#dims').onclick = () => {
+  S.dims = !S.dims;
+  try { localStorage.setItem('pm.dims', S.dims ? '1' : '0'); } catch {}
+  $('#dims').classList.toggle('on', S.dims);
+  toast(S.dims ? 'אורכי כל הקירות מוצגים' : 'אורכי הקירות מוסתרים. הקשה על קיר בכלי "בחירה" מראה את האורך שלו'); draw();
+};
+$('#dims').classList.toggle('on', S.dims);
+$('#ortho').onclick = () => { S.ortho = !S.ortho; $('#ortho').classList.toggle('on', S.ortho); toast(S.ortho ? 'יישור לזוויות 45°/90° פעיל' : 'יישור כבוי'); };
+
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+let rafPending = false;
+function draw() { if (rafPending) return; rafPending = true; requestAnimationFrame(() => { rafPending = false; paint(); }); }
+
+function paint() {
+  $('#ortho').classList.toggle('on', S.ortho);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = css('--stage'); ctx.fillRect(0, 0, W, H);
+  const pg = S.page; if (!pg) return;
+  S.textBoxes = {};
+  renderScene(ctx, pg, S.V, W, H, { ui: true, img: S.img, sel: S.selId, labelK: 1, show: S.show, fill: S.fill, dims: S.dims });
+  if (S.tape) drawTape(S.tape.a, S.tape.b);
+  drawDraft();
+  if (S.placing) drawLoupe();
+}
+
+/** Shared renderer for screen and image export. V maps world->target pixels. */
+function renderScene(c, pg, V, w, h, o) {
+  const P = p => [p[0] * V.s + V.tx, p[1] * V.s + V.ty];
+  const k = o.labelK, vis = m => !o.show || o.show === 'all' || o.show === m;
+  if (pg.kind === 'sketch') {
+    c.fillStyle = o.ui ? css('--surface') : '#ffffff'; c.fillRect(0, 0, w, h);
+    const grid = (step, col, lw) => {
+      const sp = step * V.s; if (sp < 6) return;
+      c.strokeStyle = col; c.lineWidth = lw; c.beginPath();
+      const x0 = Math.floor(-V.tx / V.s / step) * step, y0 = Math.floor(-V.ty / V.s / step) * step;
+      for (let x = x0; x * V.s + V.tx < w; x += step) { const X = Math.round(x * V.s + V.tx) + .5; c.moveTo(X, 0); c.lineTo(X, h); }
+      for (let y = y0; y * V.s + V.ty < h; y += step) { const Y = Math.round(y * V.s + V.ty) + .5; c.moveTo(0, Y); c.lineTo(w, Y); }
+      c.stroke();
+    };
+    const gl = o.ui ? css('--line') : '#dfe4ea';
+    grid(10, gl + '66', 1); grid(100, gl, 1);
+  } else if (o.img) {
+    c.imageSmoothingQuality = 'high';
+    c.drawImage(o.img, V.tx, V.ty, pg.w * V.s, pg.h * V.s);
+  } else if (pg.w) {
+    c.fillStyle = '#fff'; c.fillRect(V.tx, V.ty, pg.w * V.s, pg.h * V.s);
+  }
+  const fontN = (sz, wt = 500) => `${wt} ${sz * k}px "IBM Plex Sans Hebrew", "Segoe UI", sans-serif`;
+  /** A label box centred on x,y. Returns its rectangle (used to pick and drag notes). */
+  const pill = (txt, x, y, bg, fg, sz = 12, wt = 600, italic = false, ring = null) => {
+    c.font = (italic ? 'italic ' : '') + fontN(sz, wt); c.direction = 'rtl';
+    const lines = String(txt).split('\n'); const lh = sz * k * 1.25;
+    const tw = Math.max(...lines.map(l => c.measureText(l).width)), pw = tw + 10 * k, ph = lh * lines.length + 6 * k;
+    roundRect(c, x - pw / 2, y - ph / 2, pw, ph, 5 * k);
+    if (bg) { c.fillStyle = bg; c.fill(); }
+    if (ring) { c.strokeStyle = ring; c.lineWidth = 2; c.stroke(); }
+    c.fillStyle = fg; c.textAlign = 'center'; c.textBaseline = 'middle';
+    lines.forEach((l, i) => c.fillText(l, x, y - ph / 2 + 3 * k + lh * (i + .5)));
+    return { x: x - pw / 2, y: y - ph / 2, w: pw, h: ph };
+  };
+  const lenLabel = (a, b, strong) => {
+    const L = lenM(pg, dist(a, b)); if (L == null) return;
+    const A = P(a), B = P(b); if (!strong && Math.hypot(B[0] - A[0], B[1] - A[1]) < 46 * k) return;
+    if (strong) pill(fmt(L) + ' מ׳', (A[0] + B[0]) / 2, (A[1] + B[1]) / 2, '#E09A00', '#fff', 13, 700);
+    else pill(fmt(L), (A[0] + B[0]) / 2, (A[1] + B[1]) / 2, 'rgba(255,255,255,.92)', '#1a2530', 10.5, 500);
+  };
+  const sel = o.ui ? findSel() : null;
+  const faces = computeFaces(pg);
+  const ring = f => { c.beginPath(); [f, ...f.children].forEach(g => { g.pts.forEach((p, i) => { const q = P(p); i ? c.lineTo(q[0], q[1]) : c.moveTo(q[0], q[1]); }); c.closePath(); }); };
+  for (const f of faces) {
+    const col = (CATS[faceCat(f)] || CATS.other).c, isSel = sel?.kind === 'face' && sel.f === f;
+    if (o.fill && o.fill !== 'full' && !isSel) continue;
+    ring(f); c.fillStyle = col + (isSel ? '50' : f.children.length ? '38' : '26'); c.fill('evenodd');
+  }
+  // wall lines: one solid blue for net and gross alike
+  for (const e of pg.edges || []) {
+    const m = layerOf(e); if (!vis(m)) continue;
+    const A = P(e.a), B = P(e.b), isSel = sel?.kind === 'edge' && (sel.e === e || (e.arc && sel.e.arc === e.arc));
+    c.strokeStyle = isSel ? '#E09A00' : '#1F4FD1';
+    c.lineWidth = (isSel ? 4 : 2.2) * k; c.lineCap = 'round';
+    c.beginPath(); c.moveTo(A[0], A[1]); c.lineTo(B[0], B[1]); c.stroke();
+  }
+  c.setLineDash([]);
+  if (sel?.kind === 'face') { c.strokeStyle = '#1F4FD1'; c.lineWidth = 3.2 * k; c.beginPath(); sel.f.pts.forEach((p, i) => { const q = P(p); i ? c.lineTo(q[0], q[1]) : c.moveTo(q[0], q[1]); }); c.closePath(); c.stroke(); }
+  for (const s of pg.shapes) {
+    if (s.t === 'pen' && s.pts.length > 1) {
+      c.beginPath(); s.pts.forEach((p, i) => { const q = P(p); i ? c.lineTo(q[0], q[1]) : c.moveTo(q[0], q[1]); });
+      c.strokeStyle = s.color || PEN_C; c.lineWidth = (s.id === o.sel ? 3.4 : 2.2) * k; c.lineCap = 'round'; c.lineJoin = 'round'; c.stroke();
+    }
+    if (s.t === 'line') {
+      const A = P(s.a), B = P(s.b), isSel = s.id === o.sel;
+      const ang = Math.atan2(B[1] - A[1], B[0] - A[0]), nx = -Math.sin(ang) * 7 * k, ny = Math.cos(ang) * 7 * k;
+      c.strokeStyle = LINE_C; c.lineWidth = (isSel ? 3 : 2) * k; c.lineCap = 'round';
+      c.beginPath(); c.moveTo(A[0], A[1]); c.lineTo(B[0], B[1]);
+      c.moveTo(A[0] - nx, A[1] - ny); c.lineTo(A[0] + nx, A[1] + ny); c.moveTo(B[0] - nx, B[1] - ny); c.lineTo(B[0] + nx, B[1] + ny); c.stroke();
+      const L = lenM(pg, dist(s.a, s.b)), real = evalExpr(s.measured);
+      let t = (s.label ? s.label + ' · ' : '') + (L != null ? fmt(L) + ' מ׳' : 'ללא קנה מידה');
+      if (real != null && isFinite(real)) t += '\nבפועל ' + fmt(real) + ' מ׳';
+      pill(t, (A[0] + B[0]) / 2, (A[1] + B[1]) / 2, isSel ? '#1F4FD1' : '#16202B', '#fff', 11.5);
+    }
+  }
+  // lengths: every wall on a sketch, the selected area's walls, or the selected line
+  // (all of them only when the "מידות" button is on; a tapped wall always shows its own length)
+  const arcLabel = (e, strong) => {   // one label at the middle piece of the arc, with the whole arc's length
+    const g = arcGroup(pg, e), mid = g[Math.floor(g.length / 2)], L = lenM(pg, groupLen(g)); if (L == null) return;
+    const q = P([(mid.a[0] + mid.b[0]) / 2, (mid.a[1] + mid.b[1]) / 2]);
+    pill('קשת ' + fmt(L) + (strong ? ' מ׳' : ''), q[0], q[1], strong ? '#E09A00' : 'rgba(255,255,255,.92)', strong ? '#fff' : '#1a2530', strong ? 13 : 10.5, strong ? 700 : 500);
+  };
+  const doneArcs = new Set();
+  if (o.dims) (pg.edges || []).forEach(e => {
+    if (!vis(layerOf(e)) || (sel?.kind === 'edge' && (sel.e === e || (e.arc && sel.e.arc === e.arc)))) return;
+    if (e.arc) { if (!doneArcs.has(e.arc)) { doneArcs.add(e.arc); arcLabel(e); } } else lenLabel(e.a, e.b);
+  });
+  else if (sel?.kind === 'face') sel.f.pts.forEach((p, i) => lenLabel(p, sel.f.pts[(i + 1) % sel.f.pts.length]));
+  if (sel?.kind === 'edge') { if (sel.e.arc) arcLabel(sel.e, true); else lenLabel(sel.e.a, sel.e.b, true); }
+  const kk = pxPerM(pg);
+  for (const f of faces) {
+    const isSel = sel?.kind === 'face' && sel.f === f, outer = f.children.length > 0, a = f.attr;
+    if (o.fill === 'lines' && !isSel) continue;
+    let cc = P(a && inPoly(a.pt, f.pts) ? a.pt : interiorPoint(f.pts)), t;
+    if (outer) {   // the walls label sits at the top of the outline, clear of the room labels
+      const top = Math.min(...f.pts.map(p => P(p)[1])); cc = [P(interiorPoint(f.pts))[0], top + 22 * k];
+      t = 'קירות ' + (kk ? fmt(f.own2 / 2 / kk / kk) + ' מ״ר' : '—') + (kk ? '\nסה״כ כולל קירות ' + fmt(f.area2 / 2 / kk / kk) : '');
+    } else {
+      const A = areaM(pg, f.pts), real = evalExpr(a?.measured);
+      t = (a?.name ? a.name + '\n' : '') + (A != null ? fmt(A) + ' מ״ר' : '—');
+      if (real != null && isFinite(real)) t += '\nבפועל ' + fmt(real);
+    }
+    pill(t, cc[0], cc[1], isSel ? '#1F4FD1' : outer ? '#4A5562' : 'rgba(255,255,255,.93)', isSel || outer ? '#fff' : '#16202B', 12);
+  }
+  for (const s of pg.shapes) if (s.t === 'text') {
+    const q = P(s.p), st = noteStyle(s);
+    const box = pill(s.text || 'הערה', q[0], q[1], st.bg, st.fg, st.size, st.bold ? 700 : 500, st.italic, s.id === o.sel ? '#1F4FD1' : null);
+    if (o.ui) S.textBoxes[s.id] = box;
+  }
+  if (o.ui && sel && S.tool === 'pan') {
+    handlePoints(sel).forEach(p => { const q = P(p); c.beginPath(); c.arc(q[0], q[1], 7, 0, Math.PI * 2); c.fillStyle = '#fff'; c.fill(); c.lineWidth = 2.5; c.strokeStyle = '#1F4FD1'; c.stroke(); });
+  }
+}
+function roundRect(c, x, y, w, h, r) { c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r); c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath(); }
+
+function drawDraft() {
+  const d = S.draft, pg = S.page;
+  const cur = S.placing ? S.placing.w : S.hover;
+  if (cur && isDrawTool()) {
+    const q = w2s(cur); ctx.strokeStyle = '#1F4FD1'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(q[0] - 12, q[1]); ctx.lineTo(q[0] + 12, q[1]); ctx.moveTo(q[0], q[1] - 12); ctx.lineTo(q[0], q[1] + 12); ctx.stroke();
+    if (S.snapKind === 'v') { ctx.beginPath(); ctx.arc(q[0], q[1], 8, 0, 7); ctx.strokeStyle = '#E09A00'; ctx.lineWidth = 2; ctx.stroke(); }
+    if (S.snapKind === 'e') { ctx.strokeStyle = '#E09A00'; ctx.lineWidth = 2; ctx.strokeRect(q[0] - 6, q[1] - 6, 12, 12); }
+  }
+  if (!d || !d.pts.length) return;
+  const col = d.t === 'scale' || d.t === 'tape' ? '#D2342A' : d.t === 'line' ? LINE_C : '#1F4FD1';
+  const pts = (d.t === 'chain' ? d.pts.slice(-1) : d.pts).map(w2s);
+  ctx.strokeStyle = col; ctx.lineWidth = 2.2; ctx.setLineDash([]);
+  ctx.beginPath(); pts.forEach((q, i) => i ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1])); ctx.stroke();
+  if (d.t === 'chain' && d.arcB && cur) {   // arc being bent: show it as it will be drawn
+    const ap = arcPoints(d.pts.at(-1), d.arcB, cur).map(w2s);
+    ctx.setLineDash([6, 5]); ctx.beginPath(); ap.forEach((q, i) => i ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1])); ctx.stroke(); ctx.setLineDash([]);
+    const B = w2s(d.arcB); ctx.beginPath(); ctx.arc(B[0], B[1], 4.5, 0, 7); ctx.fillStyle = col; ctx.fill();
+  } else if (cur) {
+    const last = d.pts[d.pts.length - 1], l = pts[pts.length - 1];
+    // with a typed length the preview already has that length, in the pointer's direction
+    let end = cur; const TL = d.t === 'chain' ? evalExpr(S.lenTyped) : null, kp = pxPerM(pg);
+    if (TL && isFinite(TL) && kp && dist(last, cur) > 0) { const n = dist(last, cur); end = [last[0] + (cur[0] - last[0]) / n * TL * kp, last[1] + (cur[1] - last[1]) / n * TL * kp]; }
+    const q = w2s(end);
+    ctx.setLineDash([6, 5]); ctx.beginPath(); ctx.moveTo(l[0], l[1]); ctx.lineTo(q[0], q[1]); ctx.stroke(); ctx.setLineDash([]);
+    const L = lenM(pg, dist(last, end));
+    if (L != null && d.t !== 'scale') {
+      ctx.font = '600 12px "IBM Plex Mono", monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.direction = 'ltr';
+      let ang = -Math.atan2(end[1] - last[1], end[0] - last[0]) * 180 / Math.PI; if (ang < 0) ang += 360;
+      const tx = fmt(L) + ' m' + (d.t === 'chain' || d.t === 'tape' ? ' · ' + Math.round(ang) + '°' : ''), mx = (l[0] + q[0]) / 2, my = (l[1] + q[1]) / 2 - 14, tw = ctx.measureText(tx).width + 10;
+      ctx.fillStyle = '#16202B'; roundRect(ctx, mx - tw / 2, my - 10, tw, 20, 5); ctx.fill(); ctx.fillStyle = '#fff'; ctx.fillText(tx, mx, my);
+    }
+  }
+  pts.forEach(q => { ctx.beginPath(); ctx.arc(q[0], q[1], 4.5, 0, 7); ctx.fillStyle = col; ctx.fill(); });
+}
+/** The measuring tape: a red line with end ticks and its length. Never saved. */
+function drawTape(a, b) {
+  const A = w2s(a), B = w2s(b), L = lenM(S.page, dist(a, b));
+  const ang = Math.atan2(B[1] - A[1], B[0] - A[0]), nx = -Math.sin(ang) * 8, ny = Math.cos(ang) * 8;
+  ctx.save(); ctx.strokeStyle = '#D2342A'; ctx.lineWidth = 2.5; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(A[0], A[1]); ctx.lineTo(B[0], B[1]);
+  ctx.moveTo(A[0] - nx, A[1] - ny); ctx.lineTo(A[0] + nx, A[1] + ny); ctx.moveTo(B[0] - nx, B[1] - ny); ctx.lineTo(B[0] + nx, B[1] + ny); ctx.stroke();
+  const t = L != null ? fmt(L) + ' מ׳' : 'אין קנה מידה';
+  ctx.font = '700 14px "IBM Plex Sans Hebrew", "Segoe UI", sans-serif'; ctx.direction = 'rtl'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  const mx = (A[0] + B[0]) / 2, my = (A[1] + B[1]) / 2 - 18, tw = ctx.measureText(t).width + 16;
+  ctx.fillStyle = '#D2342A'; roundRect(ctx, mx - tw / 2, my - 13, tw, 26, 6); ctx.fill(); ctx.fillStyle = '#fff'; ctx.fillText(t, mx, my);
+  ctx.restore();
+}
+function drawLoupe() {
+  const p = S.placing; const R = 64, Z = 3;
+  const cx = p.sx < W / 2 ? W - R - 14 : R + 14, cy = R + 14 + (p.sy < R * 2 + 40 ? H - R * 2 - 40 : 0);
+  ctx.save(); ctx.beginPath(); ctx.arc(cx, cy, R, 0, 7); ctx.clip();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  const sx = (p.sx - R / Z) * dpr, sy = (p.sy - R / Z) * dpr, sw = (2 * R / Z) * dpr;
+  ctx.drawImage(cv, sx, sy, sw, sw, (cx - R) * dpr, (cy - R) * dpr, 2 * R * dpr, 2 * R * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.strokeStyle = '#D2342A'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(cx - 14, cy); ctx.lineTo(cx + 14, cy); ctx.moveTo(cx, cy - 14); ctx.lineTo(cx, cy + 14); ctx.stroke();
+  ctx.restore();
+  ctx.beginPath(); ctx.arc(cx, cy, R, 0, 7); ctx.lineWidth = 3; ctx.strokeStyle = '#16202B'; ctx.stroke();
+}
+
+/* ================= Snapping ================= */
+// snaps to: line ends and junctions ('v'), then a point on an existing wall line ('e'), then 45°/90° and the sketch grid
+function snap(w, prev, base) {
+  S.snapKind = null;
+  const tol = 14 / S.V.s, pg = S.page;
+  let best = null, bd = tol;
+  const consider = p => { if (kOf(p) === S.dragKey) return; const d = dist(p, w); if (d < bd) { bd = d; best = p; } };
+  for (const e of pg.edges || []) if (visibleLayer(layerOf(e))) { consider(e.a); consider(e.b); }
+  for (const s of pg.shapes) if (s.t === 'line') { consider(s.a); consider(s.b); }
+  if (S.draft && S.draft.t !== 'chain') S.draft.pts.slice(0, -1).forEach(consider);
+  if (best) { S.snapKind = 'v'; return [best[0], best[1]]; }
+  if (S.ortho && prev) {
+    const a0 = base ?? 0, ang = Math.atan2(w[1] - prev[1], w[0] - prev[0]);
+    const st = Math.PI / 4, sa = Math.round((ang - a0) / st) * st + a0, L = dist(prev, w);
+    w = [prev[0] + Math.cos(sa) * L, prev[1] + Math.sin(sa) * L];
+  }
+  if (S.tool === 'area') {
+    let be = null, bed = tol;
+    for (const e of pg.edges || []) { if (layerOf(e) !== S.layer || kOf(e.a) === S.dragKey || kOf(e.b) === S.dragKey) continue; const d = segDist(w, e.a, e.b); if (d < bed) { bed = d; be = e; } }
+    if (be) {
+      let p;
+      if (S.ortho && prev) {   // where the straightened line meets the wall
+        const h = segHits(prev, [prev[0] + (w[0] - prev[0]) * 1e3, prev[1] + (w[1] - prev[1]) * 1e3], be.a, be.b)[0];
+        if (h && segDist(h, be.a, be.b) < EPS) p = h;
+      }
+      if (!p) { const dx = be.b[0] - be.a[0], dy = be.b[1] - be.a[1], t = Math.max(0, Math.min(1, ((w[0] - be.a[0]) * dx + (w[1] - be.a[1]) * dy) / (dx * dx + dy * dy))); p = [be.a[0] + t * dx, be.a[1] + t * dy]; }
+      S.snapKind = 'e'; return [r1(p[0]), r1(p[1])];
+    }
+  }
+  if (pg.kind === 'sketch') w = [Math.round(w[0] / 5) * 5, Math.round(w[1] / 5) * 5];
+  return [r1(w[0]), r1(w[1])];
+}
+function draftBase() {
+  const p = S.draft?.pts; if (!p || p.length < 2) return 0;
+  return S.draft.t === 'chain' ? Math.atan2(p[1][1] - p[0][1], p[1][0] - p[0][0]) : Math.atan2(p[1][1] - p[0][1], p[1][0] - p[0][0]);
+}
+function snapFor(w) { const prev = S.draft?.pts.at(-1); return snap(w, prev, draftBase()); }
+
+/* ================= Hit testing ================= */
+/** Measure lines, notes and pen strokes. */
+/** A note whose box is under the pointer (boxes are recorded while drawing). */
+function hitNote(sp) {
+  const sh = S.page.shapes, pad = 4;
+  for (let i = sh.length - 1; i >= 0; i--) {
+    const s = sh[i], b = s.t === 'text' && S.textBoxes?.[s.id];
+    if (b && sp[0] >= b.x - pad && sp[0] <= b.x + b.w + pad && sp[1] >= b.y - pad && sp[1] <= b.y + b.h + pad) return s;
+  }
+  return null;
+}
+function hitItem(sp) {
+  const w = s2w(sp), tol = 12 / S.V.s, sh = S.page.shapes;
+  const note = hitNote(sp); if (note) return note;
+  for (let i = sh.length - 1; i >= 0; i--) { const s = sh[i];
+    if (s.t === 'line' && segDist(w, s.a, s.b) < tol) return s;
+    if (s.t === 'pen') for (let j = 1; j < s.pts.length; j++) if (segDist(w, s.pts[j - 1], s.pts[j]) < tol) return s;
+  }
+  return null;
+}
+function hitEdge(sp) {
+  const w = s2w(sp), tol = 10 / S.V.s; let best = null, bd = tol;
+  for (const e of S.page.edges || []) { if (!visibleLayer(layerOf(e))) continue; const d = segDist(w, e.a, e.b) - (layerOf(e) === S.layer ? 1e-6 : 0); if (d < bd) { bd = d; best = e; } }
+  return best;
+}
+function hitFace(sp) { const w = s2w(sp); return computeFaces(S.page).filter(f => visibleLayer(f.m) && inPoly(w, f.pts)).sort((a, b) => a.area2 - b.area2)[0] || null; }
+function handlePoints(sel) {
+  if (!sel) return [];
+  if (sel.kind === 'face') return sel.f.pts;
+  if (sel.kind === 'edge') return [sel.e.a, sel.e.b];
+  const s = sel.s; return s.t === 'line' ? [s.a, s.b] : [];
+}
+function hitHandle(sp) {
+  const sel = findSel(); if (!sel) return null;
+  const list = handlePoints(sel);
+  for (let i = 0; i < list.length; i++) { const q = w2s(list[i]); if (Math.hypot(q[0] - sp[0], q[1] - sp[1]) < 20) return { sel, i, p: list[i] }; }
+  return null;
+}
+
+/* ================= Pointer handling ================= */
+const ptrs = new Map();
+let gesture = null;   // {type:'pinch'|'pan'|'tap'|'drag'|'vdrag'|'pen'|'place'|'erase', ...}
+const isDrawTool = () => ['area', 'line', 'scale', 'text', 'tape'].includes(S.tool);
+const local = e => { const r = cv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+
+/** Moving a corner moves it for every wall line that meets there; area details follow their area. */
+function startVertexDrag(p) {
+  const key = kOf(p), refs = [];
+  (S.page.edges || []).forEach(e => { if (kOf(e.a) === key) refs.push([e, 'a']); if (kOf(e.b) === key) refs.push([e, 'b']); });
+  const faces = computeFaces(S.page).filter(f => f.attr && f.pts.some(q => kOf(q) === key)).map(f => ({ attr: f.attr, keys: f.pts.map(kOf) }));
+  return { type: 'vdrag', key, refs, faces, moved: false };
+}
+function endVertexDrag(g) {
+  S.dragKey = null; bump(S.page);
+  const nk = g.refs.length ? kOf(g.refs[0][0][g.refs[0][1]]) : g.key;
+  const now = computeFaces(S.page);
+  g.faces.forEach(({ attr, keys }) => {
+    const want = keys.map(k => k === g.key ? nk : k).sort().join('|');
+    const f = now.find(x => x.m === (attr.m === 'gross' ? 'gross' : 'net') && x.pts.map(kOf).sort().join('|') === want);
+    if (f) attr.pt = interiorPoint(f.pts);
+  });
+  bump(S.page);
+}
+
+cv.addEventListener('pointerdown', e => {
+  if (!S.page) return;
+  cv.setPointerCapture(e.pointerId);
+  const sp = local(e); ptrs.set(e.pointerId, sp);
+  if (ptrs.size === 2) {
+    if (gesture?.type === 'pen' && gesture.shape) { S.page.shapes = S.page.shapes.filter(s => s !== gesture.shape); S.undo.pop(); }
+    S.placing = null;
+    const [a, b] = [...ptrs.values()];
+    gesture = { type: 'pinch', d0: Math.hypot(b[0] - a[0], b[1] - a[1]), c0: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], V0: { ...S.V } };
+    draw(); return;
+  }
+  if (ptrs.size > 2) return;
+  if (e.button === 1 || e.button === 2) { gesture = { type: 'pan', last: sp, moved: true }; return; }
+  // a note can be picked up and moved with the select or note tool
+  if (S.tool === 'pan' || S.tool === 'text') {
+    const note = hitNote(sp);
+    if (note) {
+      pushUndo(); const w0 = s2w(sp);
+      gesture = { type: 'ndrag', s: note, off: [note.p[0] - w0[0], note.p[1] - w0[1]], start: sp, moved: false };
+      if (S.selId !== note.id) { S.selId = note.id; renderPanel(true); }
+      draw(); return;
+    }
+  }
+  // corners move only with the select tool; in drawing tools a tap always places a point
+  const h = S.tool === 'pan' && hitHandle(sp);
+  if (h) {
+    pushUndo();
+    if (h.sel.kind === 'shape') gesture = { type: 'drag', h: { s: h.sel.s, i: h.i }, moved: false };
+    else { gesture = startVertexDrag(h.p); S.dragKey = gesture.key; }
+    if (e.pointerType === 'touch') startPlacing(sp, true);
+    return;
+  }
+  if (S.tool === 'erase') { gesture = { type: 'erase', n: 0, start: sp, dragging: false }; return; }
+  if (S.tool === 'pen') {
+    pushUndo(); const shape = { id: uid(), t: 'pen', pts: [s2w(sp).map(r1)], color: PEN_C };
+    S.page.shapes.push(shape); gesture = { type: 'pen', shape }; draw(); return;
+  }
+  // measuring tape with a mouse: drag from point to point (a plain click still works point by point)
+  if (S.tool === 'tape' && e.pointerType !== 'touch') { gesture = { type: 'tapedrag', start: sp, a: snapFor(s2w(sp)), moved: false }; return; }
+  if (isDrawTool() && e.pointerType === 'touch') { gesture = { type: 'place' }; startPlacing(sp); return; }
+  gesture = { type: 'tap', start: sp, last: sp, moved: false };
+});
+function startPlacing(sp, forDrag) {
+  const w = forDrag ? s2w(sp) : snapFor(s2w(sp));
+  S.placing = { sx: sp[0], sy: sp[1], w };
+  draw();
+}
+cv.addEventListener('pointermove', e => {
+  const sp = local(e);
+  if (!ptrs.has(e.pointerId)) {
+    if (e.pointerType !== 'touch' && S.page && isDrawTool()) { S.hover = snapFor(s2w(sp)); draw(); }
+    return;
+  }
+  ptrs.set(e.pointerId, sp);
+  if (!gesture) return;
+  if (gesture.type === 'pinch' && ptrs.size >= 2) {
+    const [a, b] = [...ptrs.values()], d = Math.hypot(b[0] - a[0], b[1] - a[1]), c = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    const V0 = gesture.V0, ns = Math.max(0.005, Math.min(80, V0.s * d / gesture.d0));
+    const wx = (gesture.c0[0] - V0.tx) / V0.s, wy = (gesture.c0[1] - V0.ty) / V0.s;
+    S.V.s = ns; S.V.tx = c[0] - wx * ns; S.V.ty = c[1] - wy * ns; S.autoFit = false; draw(); return;
+  }
+  if (gesture.type === 'tap' || gesture.type === 'pan') {
+    if (gesture.type === 'tap' && Math.hypot(sp[0] - gesture.start[0], sp[1] - gesture.start[1]) > 6) gesture.type = 'pan';
+    if (gesture.type === 'pan') { S.autoFit = false; S.V.tx += sp[0] - gesture.last[0]; S.V.ty += sp[1] - gesture.last[1]; gesture.last = sp; draw(); }
+    if (e.pointerType !== 'touch' && isDrawTool()) S.hover = snapFor(s2w(sp));
+    return;
+  }
+  if (gesture.type === 'tapedrag') {
+    if (!gesture.moved && Math.hypot(sp[0] - gesture.start[0], sp[1] - gesture.start[1]) < 6) return;
+    if (!gesture.moved) { gesture.moved = true; S.draft = null; gesture.a = snap(s2w(gesture.start), null, 0); }
+    S.tape = { a: gesture.a, b: snap(s2w(sp), gesture.a, 0) }; S.hover = S.tape.b;
+    renderCtx(); draw(); return;
+  }
+  if (gesture.type === 'erase') {
+    if (!gesture.dragging && Math.hypot(sp[0] - gesture.start[0], sp[1] - gesture.start[1]) > 8) gesture.dragging = true;
+    if (gesture.dragging) eraseAt(sp, true);
+    return;
+  }
+  if (gesture.type === 'pen') { const w = s2w(sp).map(r1), last = gesture.shape.pts.at(-1); if (dist(w, last) * S.V.s > 2.5) { gesture.shape.pts.push(w); draw(); } return; }
+  if (gesture.type === 'place') { S.placing.sx = sp[0]; S.placing.sy = sp[1]; S.placing.w = snapFor(s2w(sp)); draw(); return; }
+  if (gesture.type === 'ndrag') {
+    if (!gesture.moved && Math.hypot(sp[0] - gesture.start[0], sp[1] - gesture.start[1]) < 4) return;
+    gesture.moved = true;
+    const w = s2w(sp); gesture.s.p = [r1(w[0] + gesture.off[0]), r1(w[1] + gesture.off[1])];
+    draw(); return;
+  }
+  if (gesture.type === 'vdrag') {
+    gesture.moved = true;
+    const w = snap(s2w(sp), null, 0);
+    gesture.refs.forEach(([ed, end]) => ed[end] = w);
+    S.page._v = (S.page._v || 1) + 1;
+    if (S.placing) { S.placing.sx = sp[0]; S.placing.sy = sp[1]; S.placing.w = w; }
+    draw(); return;
+  }
+  if (gesture.type === 'drag') {
+    gesture.moved = true;
+    const { s, i } = gesture.h;
+    if (s.t === 'line') { if (i) s.b = [1e12, 1e12]; else s.a = [1e12, 1e12]; }
+    const w = s.t === 'text' ? s2w(sp).map(r1) : snap(s2w(sp), null, 0);
+    if (s.t === 'line') { if (i) s.b = w; else s.a = w; } else s.p = w;
+    if (S.placing) { S.placing.sx = sp[0]; S.placing.sy = sp[1]; S.placing.w = w; }
+    draw(); return;
+  }
+});
+function endPointer(e) {
+  if (!ptrs.has(e.pointerId)) return;
+  const sp = ptrs.get(e.pointerId); ptrs.delete(e.pointerId);
+  if (!gesture) return;
+  if (gesture.type === 'pinch') { if (ptrs.size === 0) gesture = null; else { const [only] = [...ptrs.values()]; gesture = { type: 'pan', last: only, moved: true }; } return; }
+  const g = gesture; gesture = null;
+  if (e.type === 'pointercancel') { S.placing = null; if (g.type === 'vdrag') S.dragKey = null; draw(); return; }
+  if (g.type === 'tapedrag') { if (!g.moved) onTap(g.a, sp); else { S.hover = null; renderCtx(); draw(); } }
+  else if (g.type === 'erase') { if (!g.dragging) { gesture = g; eraseAt(sp, false); gesture = null; } if (g.n) { markDirty(); renderPanel(false); toast(g.n === 1 ? 'נמחק. ↶ מחזיר' : `נמחקו ${g.n}. ↶ מחזיר`); } }
+  else if (g.type === 'tap') onTap(snapFor(s2w(sp)), sp);
+  else if (g.type === 'place') { const w = S.placing?.w; S.placing = null; if (w) onTap(w, sp); }
+  else if (g.type === 'pen') { if (g.shape.pts.length < 2) { S.page.shapes = S.page.shapes.filter(s => s !== g.shape); S.undo.pop(); draw(); } else { g.shape.pts = simplify(g.shape.pts, 1.2 / S.V.s); markDirty(); } }
+  else if (g.type === 'ndrag') { if (g.moved) markDirty(); else S.undo.pop(); draw(); }
+  else if (g.type === 'vdrag') { S.placing = null; if (g.moved) { endVertexDrag(g); markDirty(); renderSel(); } else { S.dragKey = null; S.undo.pop(); draw(); } }
+  else if (g.type === 'drag') { S.placing = null; if (g.moved) { markDirty(); renderSel(); } else { S.undo.pop(); draw(); } }
+  else draw();
+}
+cv.addEventListener('pointerup', endPointer);
+cv.addEventListener('pointercancel', endPointer);
+cv.addEventListener('pointerleave', e => { if (e.pointerType !== 'touch') { S.hover = null; draw(); } });
+cv.addEventListener('contextmenu', e => e.preventDefault());
+cv.addEventListener('wheel', e => { e.preventDefault(); const sp = local(e); zoomAt(sp[0], sp[1], Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0018))); }, { passive: false });
+
+/** Eraser. A tap removes one thing: a note/measure/pen stroke, else one wall line up to the nearest junction,
+ *  else (inside an area) that area's own walls. Dragging removes the lines it crosses, never whole areas. */
+function eraseAt(sp, dragging) {
+  const pg = S.page;
+  const item = hitItem(sp), edge = item ? null : hitEdge(sp), face = item || edge || dragging ? null : hitFace(sp);
+  if (!item && !edge && !face) return;
+  if (!gesture.n) pushUndo();
+  if (item) { pg.shapes = pg.shapes.filter(x => x !== item); if (S.selId === item.id) S.selId = null; }
+  else if (edge) { const g = new Set(arcGroup(pg, edge)); pg.edges = pg.edges.filter(x => !g.has(x)); bump(pg); }
+  else removeFace(pg, face);
+  if (S.selId && !findSel()) S.selId = null;
+  gesture.n++; draw();
+}
+function simplify(pts, tol) {   // Ramer–Douglas–Peucker
+  if (pts.length < 3) return pts;
+  let idx = 0, md = 0; const a = pts[0], b = pts.at(-1);
+  for (let i = 1; i < pts.length - 1; i++) { const d = segDist(pts[i], a, b); if (d > md) { md = d; idx = i; } }
+  if (md <= tol) return [a, b];
+  return [...simplify(pts.slice(0, idx + 1), tol).slice(0, -1), ...simplify(pts.slice(idx), tol)];
+}
+
+/* ================= Tool actions ================= */
+/** Wall tool: every tap adds a line from the previous point. Reaching an existing line or corner ends the
+ *  line and closes whatever area it formed. */
+function chainTap(w, onExisting) {
+  const pg = S.page, m = S.layer;
+  if (!S.draft) { S.draft = { t: 'chain', pts: [w] }; renderCtx(); draw(); return; }
+  const d = S.draft, last = d.pts.at(-1);
+  // arc: 1st tap start, 2nd tap end, 3rd tap sets how far it bends
+  if (S.segMode === 'arc' && !d.arcB) {
+    if (dist(w, last) * S.V.s < 3) return;
+    d.arcB = w; d.arcEnds = onExisting; renderCtx(); draw(); return;
+  }
+  let arcPts = null;
+  if (S.segMode === 'arc' && d.arcB) { arcPts = arcPoints(last, d.arcB, w); w = d.arcB; onExisting = d.arcEnds; d.arcB = null; }
+  else if (dist(w, last) * S.V.s < 3) return;
+  const before = computeFaces(pg).filter(f => f.m === m).length;
+  pushUndo();
+  if (arcPts) { const id = uid(); for (let i = 1; i < arcPts.length; i++) addSegment(pg, arcPts[i - 1], arcPts[i], m, arcPts.length > 2 ? id : undefined); }
+  else addSegment(pg, last, w, m);
+  d.pts.push(w);
+  const ended = onExisting || (d.pts.length > 2 && dist(w, d.pts[0]) < EPS);
+  if (ended) S.draft = null;
+  markDirty(); renderCtx();
+  const after = computeFaces(pg).filter(f => f.m === m);
+  if (ended && after.length > before) {
+    // select the new area that touches the last line, so it can be named right away
+    const touching = after.filter(f => f.pts.some(p => dist(p, w) < EPS)).sort((a, b) => a.area2 - b.area2);
+    if (touching[0]) { selectFace(touching[0], !mobile()); toast(`נסגר שטח של ${fmt(areaM(pg, touching[0].pts))} מ״ר`); return; }
+  }
+  renderPanel(); draw();
+}
+async function onTap(w, sp) {
+  const pg = S.page; if (!pg) return;
+  if (S.tool === 'pan' || S.tool === 'pen') {
+    const item = hitItem(sp); if (item) { S.selId = item.id; renderPanel(true); draw(); return; }
+    const e = hitEdge(sp); if (e) { S.selId = 'e:' + e.id; renderPanel(true); draw(); return; }
+    const f = hitFace(sp); if (f) return selectFace(f);
+    S.selId = null; renderPanel(false); draw(); return;
+  }
+  if (S.tool === 'area') {
+    // a typed length: the tap only gives the direction (not for the bend of an arc)
+    const L = evalExpr($('#walkLen')?.value);
+    if (L && isFinite(L) && S.draft && S.segMode !== 'arc') return lineByLength(w, L);
+    return chainTap(w, (S.page.edges || []).some(e => layerOf(e) === S.layer && segDist(w, e.a, e.b) < EPS));
+  }
+  if (S.tool === 'tape') {   // nothing is saved: the measurement stays on screen until the next one
+    if (!S.draft) { S.draft = { t: 'tape', pts: [w] }; S.tape = null; }
+    else if (dist(w, S.draft.pts[0]) * S.V.s >= 3) { S.tape = { a: S.draft.pts[0], b: w }; S.draft = null; }
+    renderCtx(); draw(); return;
+  }
+  if (S.tool === 'text') {
+    const v = await dialog({ title: 'הערה על התשריט', fields: [{ id: 't', label: 'טקסט', type: 'textarea', placeholder: 'למשל: סגירת מרפסת לא בהיתר' }] });
+    if (!v || !v.t.trim()) return;
+    pushUndo(); const s = { id: uid(), t: 'text', p: w, text: v.t.trim() }; pg.shapes.push(s); S.selId = s.id; markDirty(); renderPanel(true); return;
+  }
+  if (!S.draft) S.draft = { t: S.tool, pts: [] };
+  const d = S.draft;
+  if (d.pts.length && dist(w, d.pts.at(-1)) * S.V.s < 3) return;
+  d.pts.push(w);
+  if (d.t === 'line' && d.pts.length === 2) { finishLine(); return; }
+  if (d.t === 'scale' && d.pts.length === 2) { finishScale(); return; }
+  renderCtx(); draw();
+}
+function finishLine() {
+  pushUndo(); const d = S.draft;
+  const s = { id: uid(), t: 'line', a: d.pts[0], b: d.pts[1], label: '', measured: '' };
+  S.page.shapes.push(s); S.draft = null; S.selId = s.id; markDirty(); renderCtx(); renderPanel(true);
+}
+async function finishScale() {
+  const d = S.draft; S.draft = null; renderCtx(); draw();
+  const px = dist(d.pts[0], d.pts[1]), k = pxPerM(S.page);
+  // with a scale already set, show what the new line measures now, so it can be kept or corrected
+  const cur = k ? Math.round(px / k * 100) / 100 : null;
+  const v = await dialog(cur != null
+    ? { title: 'כיול מחדש', ok: 'כיול מחדש', text: `לפי קנה המידה הנוכחי, הקו שסימנת הוא <b class="num">${fmt(cur)}</b> מ׳.<br>אם זה נכון, לחצי "ביטול" והכיול יישאר כמו שהוא. אחרת, הקלידי את האורך האמיתי.`,
+        fields: [{ id: 'len', label: 'אורך אמיתי במטרים', num: true, value: String(cur) }] }
+    : { title: 'כיול קנה מידה', ok: 'כיול', text: 'מה האורך האמיתי של הקו שסימנת? עדיף קו ארוך ככל האפשר עם מידה רשומה בתשריט.',
+        fields: [{ id: 'len', label: 'אורך במטרים', num: true, placeholder: 'למשל 4.35' }] });
+  if (!v) { if (cur != null) { toast('הכיול נשאר כמו שהיה'); setTool('pan'); } return; }
+  const L = evalExpr(v.len);
+  if (!L || !isFinite(L) || L <= 0) return toast('יש להקליד אורך תקין במטרים');
+  if (cur != null && Math.abs(L - cur) < 0.005) { toast('האורך לא השתנה, הכיול נשאר'); return setTool('pan'); }
+  pushUndo(); S.page.scale = { pxPerM: px / L, how: 'line', ref: { a: d.pts[0], b: d.pts[1], m: L } };
+  markDirty(); renderPanel(); toast('קנה המידה נקבע: 1 מ׳ = ' + fmt(px / L, 1) + ' פיקסלים');
+  setTool('area');
+}
+async function scaleByRatio() {
+  const pg = S.page;
+  const v = await dialog({ title: 'קנה מידה לפי יחס', text: pg.dpi ? 'מתאים כשה-PDF הודפס בקנה המידה המקורי שלו. אם התשריט הוקטן או נסרק, עדיף לכייל לפי קו.' : 'לתמונה צריך לדעת את רזולוציית הסריקה (DPI). אם אינה ידועה, כיילי לפי קו.', ok: 'קביעה',
+    fields: [{ id: 'r', label: 'יחס (1:…)', num: true, value: pg.scale?.ratio || '100' }, { id: 'dpi', label: 'רזולוציה (DPI)', num: true, value: pg.dpi ? r1(pg.dpi) : '', help: pg.dpi ? 'מחושב אוטומטית מקובץ ה-PDF' : '' }] });
+  if (!v) return;
+  const r = evalExpr(v.r), dpi = evalExpr(v.dpi);
+  if (!r || !dpi) return toast('יש למלא יחס ו-DPI');
+  pushUndo(); S.page.scale = { pxPerM: dpi / 0.0254 / r, how: 'ratio', ratio: r };
+  markDirty(); renderPanel(); toast('קנה מידה 1:' + r + ' נקבע');
+}
+/** Recalibrate: mark a new line first; finishScale then shows its current length and lets it be kept or corrected. */
+function recalibrate() {
+  setTool('scale');
+  if (mobile()) { S.panelOpen = false; S.selId = null; renderPanel(); renderTools(); }
+  toast('סמני קו שאורכו ידוע. אחר כך יופיע האורך שלו לפי הכיול הנוכחי.', 4000);
+}
+
+function setTool(t) {
+  if (S.draft && S.draft.t !== (t === 'area' ? 'chain' : t)) S.draft = null;
+  if (t !== 'tape') S.tape = null;
+  S.tool = t; S.hover = null; renderTools(); renderCtx(); draw();
+}
+
+/* ================= Toolbar & context bar ================= */
+function renderTools() {
+  const sk = S.page?.kind === 'sketch';
+  const tools = [['pan', 'בחירה'], ['area', 'קירות'], ['tape', 'סרט מדידה'], ['line', 'מידה'], ['text', 'הערה'], ['pen', 'עט'], ['erase', 'מחיקה']];
+  if (!sk) tools.push(['scale', 'קנה מידה']);
+  $('#tools').innerHTML = tools.map(([k, n]) => `<button class="tool" data-tool="${k}" aria-pressed="${S.tool === k}">${svg(k)}<span>${n}</span></button>`).join('')
+    + `<button class="tool sep" id="sumBtn" aria-pressed="${S.panelOpen}">${svg('sum')}<span>סיכום</span></button>`;
+  document.documentElement.style.setProperty('--tools-h', $('#tools').offsetHeight + 'px');
+  renderCtx();
+}
+$('#tools').onclick = e => {
+  if (e.target.closest('#sumBtn')) { S.panelOpen = !S.panelOpen; S.panelBySel = false; if (S.panelOpen) S.selId = null; renderPanel(); renderTools(); draw(); return; }
+  const b = e.target.closest('[data-tool]'); if (b && S.page) setTool(b.dataset.tool);
+};
+const HINTS = {
+  pan: 'הקשה על קיר מראה את האורך שלו. הקשה בתוך שטח בוחרת אותו. גרירת פינה מזיזה אותה בכל הקווים שנפגשים בה',
+  tape: 'סרט מדידה: גררי מנקודה לנקודה, או הקישי בשתי נקודות. המדידה לא נשמרת',
+  line: 'סמני שתי נקודות על קיר, ואז רשמי את המידה שנמדדה בפועל',
+  text: 'הקישי במקום שבו תופיע ההערה',
+  pen: 'ציור חופשי. שתי אצבעות להזזה',
+  erase: 'הקשה על קו מוחקת רק את הקטע עד הצומת הקרוב. הקשה בתוך שטח מוחקת את הקירות שלו. ↶ מחזיר',
+  scale: 'סמני קו שאורכו ידוע (מידה רשומה בתשריט)',
+};
+function renderCtx() {
+  const el = $('#ctxbar'); if (!S.page) { el.innerHTML = ''; return; }
+  const d = S.draft, parts = [];
+  if (S.tool === 'area') {
+    parts.push(`<div class="seg" role="group" aria-label="סוג קו"><button data-c="seg-line" aria-pressed="${S.segMode !== 'arc'}">קו ישר</button><button data-c="seg-arc" aria-pressed="${S.segMode === 'arc'}">קשת</button></div>`);
+    const arc = S.segMode === 'arc';
+    if (d) {
+      const hint = arc ? (d.arcB ? 'הזיזי והקישי כדי לקבוע כמה הקשת מתעגלת' : 'הקישי בנקודת הסוף של הקשת')
+        : 'הקלידי אורך והקישי בכיוון הרצוי, או הקישי בנקודה. קו שמגיע לקו קיים סוגר את השטח';
+      parts.push(`<span class="hint">${hint}</span><button class="btn sm primary" data-c="endChain">סיום</button>`);
+      if (pxPerM(S.page) && !arc) parts.push(`<div class="walk"><input class="input num" id="walkLen" inputmode="decimal" placeholder="אורך מ׳" aria-label="אורך הקיר הבא במטרים" value="${esc(S.lenTyped || '')}"><div class="dirs">${[['↖', -1, -1], ['↑', 0, -1], ['↗', 1, -1], ['←', -1, 0], ['', 0, 0], ['→', 1, 0], ['↙', -1, 1], ['↓', 0, 1], ['↘', 1, 1]].map(([s, x, y]) => s ? `<button data-dx="${x}" data-dy="${y}" aria-label="קיר לכיוון ${s}">${s}</button>` : '<span></span>').join('')}</div><span class="calc" style="max-width:130px">אורך + Enter: בכיוון של העכבר. או אורך + הקשה / חץ</span></div>`);
+    } else {
+      parts.push(`<span class="hint">${arc ? 'קשת: הקישי בנקודת ההתחלה' : 'הקישי בפינות החדר. קו בין שני קווים קיימים מחלק את השטח. קונטור נוסף מסביב לחדרים מוסיף את שטח הקירות לסה״כ'}</span>${pxPerM(S.page) && !arc ? '<button class="btn sm" data-c="rect">חדר מלבני לפי מידות…</button>' : ''}`);
+    }
+  }
+  else if (S.tool === 'tape') {
+    if (d) parts.push(`<span class="hint">סמני את נקודת הסיום</span><button class="btn sm" data-c="cancel">ביטול</button>`);
+    else if (S.tape) { const L = lenM(S.page, dist(S.tape.a, S.tape.b)); parts.push(`<span class="hint">סרט מדידה: <b class="num">${L != null ? fmt(L) : '—'}</b> מ׳${L == null ? ' (לא נקבע קנה מידה)' : ''}</span><button class="btn sm" data-c="tapeClear">ניקוי</button>`); }
+    else parts.push(`<span class="hint">${HINTS.tape}</span>`);
+  }
+  else if (S.tool === 'scale' && !d) parts.push(`<span class="hint">${HINTS.scale}</span><button class="btn sm" data-c="ratio">לפי יחס 1:100…</button>`);
+  else if (d && d.pts.length) parts.push(`<span class="hint">סמני את הנקודה השנייה</span><button class="btn sm" data-c="cancel">ביטול</button>`);
+  else if (S.tool !== 'pan' || (!S.selId && !(S.page.edges || []).length && !S.page.shapes.length)) parts.push(`<span class="hint">${HINTS[S.tool]}</span>`);
+  if (!pxPerM(S.page) && S.page.kind === 'plan' && S.tool !== 'scale' && !d) parts.push(`<button class="btn sm" data-c="toscale" style="background:var(--tape-soft)">לא נקבע קנה מידה · כיול</button>`);
+  el.innerHTML = parts.join('');
+}
+$('#ctxbar').onclick = e => {
+  const dirB = e.target.closest('[data-dx]');
+  if (dirB) return walk(+dirB.dataset.dx, +dirB.dataset.dy);
+  const b = e.target.closest('[data-c]'); if (!b) return;
+  const c = b.dataset.c;
+  if (c === 'endChain' || c === 'cancel') { S.draft = null; S.lenTyped = ''; renderCtx(); draw(); }
+  if (c === 'seg-line' || c === 'seg-arc') { S.segMode = c.slice(4); if (S.draft) S.draft.arcB = null; renderCtx(); draw(); }
+  if (c === 'tapeClear') { S.tape = null; renderCtx(); draw(); }
+  if (c === 'ratio') scaleByRatio();
+  if (c === 'toscale') setTool('scale');
+  if (c === 'rect') rectRoom();
+};
+$('#ctxbar').addEventListener('input', e => { if (e.target.id === 'walkLen') { S.lenTyped = e.target.value; draw(); } });
+$('#ctxbar').addEventListener('keydown', e => {
+  if (e.target.id !== 'walkLen') return;
+  if (e.key === 'Enter' || e.key === 'Escape') e.stopPropagation();   // the box is rebuilt, so don't let the page-wide Enter end the line too
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    const L = evalExpr(e.target.value);
+    if (!L || !isFinite(L)) { S.draft = null; S.lenTyped = ''; renderCtx(); draw(); return; }   // Enter with no length ends the line
+    if (!S.hover) return toast('הקישי על התשריט בכיוון שבו הקיר ממשיך');
+    lineByLength(S.hover, L);
+  }
+  if (e.key === 'Escape') { e.target.blur(); S.lenTyped = ''; e.target.value = ''; }
+});
+/** A wall of exactly L metres from the last point, in the direction of `toward` (SketchUp-style typed length). */
+function lineByLength(toward, L) {
+  const d = S.draft; if (!d) return;
+  const last = d.pts.at(-1), dx = toward[0] - last[0], dy = toward[1] - last[1], n = Math.hypot(dx, dy);
+  if (n * S.V.s < 2) return toast('הקישי רחוק יותר מהנקודה האחרונה, בכיוון הרצוי');
+  const k = pxPerM(S.page) * L;
+  let p = [r1(last[0] + dx / n * k), r1(last[1] + dy / n * k)];
+  const near = (S.page.edges || []).filter(e => layerOf(e) === S.layer).flatMap(e => [e.a, e.b]).find(q => dist(q, p) < Math.max(EPS, k * 0.005));
+  if (near) p = near.slice();
+  S.lenTyped = '';
+  chainTap(p, !!near || (S.page.edges || []).some(e => layerOf(e) === S.layer && segDist(p, e.a, e.b) < EPS));
+  setTimeout(() => $('#walkLen')?.focus(), 0);
+}
+function walk(dx, dy) {
+  const inp = $('#walkLen'); const L = evalExpr(inp?.value);
+  if (!L || !isFinite(L)) { toast('הקלידי אורך במטרים ואז כיוון'); inp?.focus(); return; }
+  const d = S.draft, last = d.pts.at(-1), k = pxPerM(S.page) * L, n = Math.hypot(dx, dy);
+  // with alignment on, arrows follow the first wall, so a slightly rotated scan still works
+  const base = S.ortho && d.pts.length >= 2 && S.page.kind !== 'sketch' ? draftBase() : 0;
+  const a = Math.atan2(dy / n, dx / n) + base;
+  let p = [r1(last[0] + Math.cos(a) * k), r1(last[1] + Math.sin(a) * k)];
+  // landing (almost) on an existing corner joins it and closes the area
+  const near = (S.page.edges || []).filter(e => layerOf(e) === S.layer).flatMap(e => [e.a, e.b]).find(q => dist(q, p) < Math.max(EPS, k * 0.01));
+  if (near) p = near.slice();
+  S.lenTyped = '';
+  chainTap(p, !!near);
+  if (inp) inp.value = '';
+  setTimeout(() => $('#walkLen')?.focus(), 0);
+}
+async function rectRoom() {
+  const v = await dialog({ title: 'חדר מלבני', text: 'החדר ימוקם במרכז המסך. אפשר לגרור את הפינות אחר כך בכלי "בחירה".', ok: 'הוספה', fields: [
+    { id: 'a', label: 'רוחב (מ׳)', num: true }, { id: 'b', label: 'אורך (מ׳)', num: true }, { id: 'n', label: 'שם החדר', placeholder: 'למשל: חדר שינה' } ] });
+  if (!v) return;
+  const a = evalExpr(v.a), b = evalExpr(v.b); if (!a || !b) return toast('יש להקליד רוחב ואורך');
+  const k = pxPerM(S.page), c = s2w([W / 2, H / 2]), hw = a * k / 2, hh = b * k / 2;
+  const pts = [[c[0] - hw, c[1] - hh], [c[0] + hw, c[1] - hh], [c[0] + hw, c[1] + hh], [c[0] - hw, c[1] + hh]].map(p => S.page.kind === 'sketch' ? p.map(x => Math.round(x / 5) * 5) : p.map(r1));
+  pushUndo();
+  pts.forEach((p, i) => addSegment(S.page, p, pts[(i + 1) % 4], S.layer));
+  const attr = { id: uid(), m: S.layer, pt: interiorPoint(pts), name: v.n.trim(), cat: S.lastCat, measured: '' };
+  (S.page.faces ||= []).push(attr); bump(S.page);
+  S.selId = 'f:' + attr.id; markDirty(); renderPanel(true);
+}
+
+/* ================= Panel: selection editor + summary ================= */
+const mobile = () => matchMedia('(max-width: 860px)').matches;
+function renderPanel(fromSelect) {
+  // on phones the sheet opens when something gets selected and closes again when the selection clears
+  if (mobile() && fromSelect !== undefined) {
+    if (S.selId) { if (!S.panelOpen) { S.panelOpen = true; S.panelBySel = true; } }
+    else if (S.panelBySel) { S.panelOpen = false; S.panelBySel = false; }
+  }
+  $('#panel').classList.toggle('open', S.panelOpen);
+  renderSel(); renderSummary(); renderCtx();
+  const sb = $('#sumBtn'); if (sb) sb.setAttribute('aria-pressed', S.panelOpen);
+}
+$('#sheetClose').onclick = () => { S.panelOpen = false; S.selId = null; renderPanel(); renderTools(); draw(); };
+
+function renderSel() {
+  const box = $('#selBox'), pg = S.page;
+  const sel = pg ? findSel() : null;
+  $('#sheetTitle').textContent = !sel ? 'סיכום' : sel.kind === 'face' ? 'שטח' : sel.kind === 'edge' ? 'קו' : ({ line: 'מידה', text: 'הערה', pen: 'ציור' })[sel.s.t];
+  $('#sumBox').hidden = mobile() && !!sel;
+  if (!sel) { box.innerHTML = ''; return; }
+  const ref = pg.kind === 'sketch' ? 'הסקיצה' : 'התשריט';
+  let h = '';
+  if (sel.kind === 'face') {
+    const a = sel.a, A = areaM(pg, sel.f.pts), real = evalExpr(a.measured);
+    if (sel.f.children.length) {
+      const k2 = pxPerM(pg), m2 = v => k2 ? fmt(v / 2 / k2 / k2) : '—';
+      h = `<div class="psec"><h3>קונטור חיצוני <small>מקיף ${sel.f.children.length} שטחים</small></h3>
+        <div class="kv" style="display:grid;grid-template-columns:auto 1fr;gap:6px 12px;font-size:14px"><span class="muted">שטח הקירות</span><b class="num" style="text-align:end">${m2(sel.f.own2)} מ״ר</b><span class="muted">סה״כ כולל קירות</span><b class="num" style="text-align:end">${m2(sel.f.area2)} מ״ר</b></div>
+        <div class="row"><span class="grow calc">שטח הקירות = הקונטור החיצוני פחות החדרים שבתוכו</span><button class="btn sm danger" id="f_del">מחיקת הקונטור</button></div></div>`;
+    } else
+    h = `<div class="psec"><h3>שטח נבחר <small>${sel.f.pts.length} קירות</small></h3>
+      <div class="edit-grid">
+        <div class="field full"><label for="f_name">שם</label><input class="input" id="f_name" value="${esc(a.name)}" placeholder="סלון, חדר שינה…"></div>
+        <div class="field"><label for="f_cat">סוג שטח</label><select class="input" id="f_cat">${Object.entries(CATS).filter(([k]) => k !== 'walls').map(([k, c]) => `<option value="${k}" ${a.cat === k ? 'selected' : ''}>${c.n}</option>`).join('')}</select></div>
+        <div class="field"><label>לפי ${ref}</label><div class="input num" style="display:flex;align-items:center;background:var(--surface-2)">${fmt(A)} מ״ר</div></div>
+        <div class="field full"><label for="f_meas">שטח שנמדד בפועל (מ״ר)</label><input class="input num" id="f_meas" inputmode="decimal" value="${esc(a.measured)}" placeholder="4.2*3.5 + 1.1*0.9"><span class="calc" id="f_calc">${calcText(A, real)}</span></div>
+      </div>
+      <div class="row"><span class="grow calc">לתיקון: קו חדש בין שני קירות מחלק את השטח, ומחיקת קו מאחדת</span><button class="btn sm danger" id="f_del">מחיקת השטח</button></div></div>`;
+  } else if (sel.kind === 'edge') {
+    const L = lenM(pg, groupLen(arcGroup(pg, sel.e)));
+    h = `<div class="psec"><h3>${sel.e.arc ? 'קשת' : 'קיר'}</h3><div class="row"><span class="grow">אורך לפי ${ref}: <b class="num">${fmt(L)}</b> מ׳</span><button class="btn sm danger" id="f_del">מחיקת הקו</button></div><span class="calc">אפשר לגרור את קצות הקו בכלי "בחירה".</span></div>`;
+  } else if (sel.s.t === 'line') {
+    const s = sel.s, L = lenM(pg, dist(s.a, s.b)), real = evalExpr(s.measured);
+    h = `<div class="psec"><h3>מידה נבחרת</h3>
+      <div class="edit-grid">
+        <div class="field full"><label for="f_name">תיאור</label><input class="input" id="f_name" value="${esc(s.label)}" placeholder="קיר מזרחי בסלון"></div>
+        <div class="field"><label>לפי ${ref}</label><div class="input num" style="display:flex;align-items:center;background:var(--surface-2)">${fmt(L)} מ׳</div></div>
+        <div class="field"><label for="f_meas">נמדד בפועל (מ׳)</label><input class="input num" id="f_meas" inputmode="decimal" value="${esc(s.measured)}" placeholder="4.35"></div>
+        <div class="full"><span class="calc" id="f_calc">${calcText(L, real)}</span></div>
+      </div>
+      <div class="row"><span class="grow"></span><button class="btn sm danger" id="f_del">מחיקה</button></div></div>`;
+  } else if (sel.s.t === 'text') {
+    const s = sel.s, st = noteStyle(s);
+    const sw = (group, map, cur) => Object.entries(map).map(([k, [c, n]]) => `<button type="button" class="swatch" data-${group}="${k}" aria-pressed="${cur === k}" title="${n}" style="${c ? 'background:' + c : ''}">${c ? '' : '∅'}</button>`).join('');
+    h = `<div class="psec"><h3>הערה <small>לגרירה למקום אחר: תפסי את התיבה בכלי "בחירה"</small></h3>
+      <textarea class="input" id="f_text">${esc(s.text)}</textarea>
+      <div class="note-tools">
+        <label class="small muted" for="f_size">גודל</label>
+        <select class="input" id="f_size" style="width:auto;min-height:34px">${NOTE_SIZES.map(([v, n]) => `<option value="${v}" ${st.size === v ? 'selected' : ''}>${n}</option>`).join('')}</select>
+        <div class="seg"><button type="button" id="f_b" aria-pressed="${st.bold}" title="מודגש"><b>B</b></button><button type="button" id="f_i" aria-pressed="${st.italic}" title="נטוי"><i style="font-family:serif">I</i></button></div>
+      </div>
+      <div class="note-tools"><span class="small muted">צבע</span>${sw('fg', NOTE_FG, s.color || 'brown')}</div>
+      <div class="note-tools"><span class="small muted">רקע</span>${sw('bg', NOTE_BG, s.bg || 'yellow')}</div>
+      <div class="row"><span class="grow"></span><button class="btn sm danger" id="f_del">מחיקה</button></div></div>`;
+  } else {
+    h = `<div class="psec"><h3>ציור חופשי</h3><div class="row"><span class="grow"></span><button class="btn sm danger" id="f_del">מחיקה</button></div></div>`;
+  }
+  box.innerHTML = h;
+  let undoArmed = true;
+  const arm = () => { if (undoArmed) { pushUndo(); undoArmed = false; } };
+  const on = (id, ev, fn) => { const el = box.querySelector('#' + id); if (el) el.addEventListener(ev, fn); };
+  const tgt = sel.kind === 'face' ? sel.a : sel.s;
+  on('f_name', 'input', e => { arm(); if (sel.kind === 'face') tgt.name = e.target.value; else tgt.label = e.target.value; markDirty(); });
+  on('f_cat', 'change', e => { pushUndo(); tgt.cat = e.target.value; S.lastCat = tgt.cat; markDirty(); });
+  on('f_meas', 'input', e => {
+    arm(); tgt.measured = e.target.value; markDirty();
+    const base = sel.kind === 'face' ? areaM(pg, sel.f.pts) : lenM(pg, dist(tgt.a, tgt.b));
+    box.querySelector('#f_calc').innerHTML = calcText(base, evalExpr(tgt.measured));
+  });
+  on('f_text', 'input', e => { arm(); tgt.text = e.target.value; markDirty(); });
+  const restyle = fn => { pushUndo(); fn(); markDirty(); renderSel(); };
+  on('f_size', 'change', e => restyle(() => tgt.size = +e.target.value));
+  on('f_b', 'click', () => restyle(() => tgt.bold = !tgt.bold));
+  on('f_i', 'click', () => restyle(() => tgt.italic = !tgt.italic));
+  box.querySelectorAll('[data-fg]').forEach(b => b.onclick = () => restyle(() => tgt.color = b.dataset.fg));
+  box.querySelectorAll('[data-bg]').forEach(b => b.onclick = () => restyle(() => tgt.bg = b.dataset.bg));
+  on('f_del', 'click', deleteSel);
+}
+function calcText(plan, real) {
+  if (real == null) return 'אפשר להקליד ביטוי חשבוני: 4.2*3.5 + 1.2*0.8';
+  if (!isFinite(real)) return '<span style="color:var(--danger)">לא הצלחתי לחשב את הביטוי</span>';
+  const p = diffPct(plan, real);
+  return `= <b class="num">${fmt(real)}</b>${p != null ? ` · הפרש <span class="num">${real - plan > 0 ? '+' : ''}${fmt(real - plan)}</span> ${diffChip(p)}` : ''}`;
+}
+
+let sumT;
+function renderSummarySoon() { clearTimeout(sumT); sumT = setTimeout(renderSummary, 250); }
+function pageStats(pg) {
+  migratePage(pg);
+  const k = pxPerM(pg);
+  const rows = computeFaces(pg).map(f => {
+    const a = f.attr, sid = a ? 'f:' + a.id : 'fk:' + f.key;
+    if (f.children.length) return { s: { name: 'קירות' + (a?.name ? ' · ' + a.name : ''), cat: 'walls', measured: '' }, sid, kind: 'net', plan: k ? f.own2 / 2 / k / k : null, real: null, walls: true };
+    return { s: a || { name: '', cat: 'main', measured: '' }, sid, kind: 'net', plan: areaM(pg, f.pts), real: evalExpr(a?.measured) };
+  }).sort((x, y) => (!!x.walls - !!y.walls) || (y.plan || 0) - (x.plan || 0));
+  const lines = (pg.shapes || []).filter(s => s.t === 'line').map(s => ({ s, sid: s.id, plan: lenM(pg, dist(s.a, s.b)), real: evalExpr(s.measured) }));
+  const by = { net: { rows: [], cats: {} }, gross: { rows: [], cats: {} } };
+  rows.forEach(r => {
+    const b = by[r.kind]; b.rows.push(r);
+    const c = b.cats[r.s.cat] ||= { plan: 0, real: 0, hasReal: false, n: 0 };
+    c.n++; if (r.plan != null) c.plan += r.plan;
+    if (r.real != null && isFinite(r.real)) { c.real += r.real; c.planR = (c.planR || 0) + (r.plan || 0); c.hasReal = true; }
+  });
+  return { rows, lines, by };
+}
+// planR = plan area of only the rooms that were also measured, so the difference compares like with like
+const sumCats = cats => Object.values(cats).reduce((a, v) => ({ plan: a.plan + v.plan, planR: a.planR + (v.planR || 0), real: a.real + v.real, hasReal: a.hasReal || v.hasReal }), { plan: 0, planR: 0, real: 0, hasReal: false });
+/** Walls = gross − net, shown when both were measured. */
+function wallNote(net, gross, hasScale) {
+  if (!hasScale || !net.plan || !gross.plan) return '';
+  const w = gross.plan - net.plan;
+  return `<div class="wall-note">קירות (ברוטו פחות נטו): <b class="num">${fmt(w)}</b> מ״ר · <span class="num">${fmt(w / net.plan * 100, 1)}%</span> מהנטו</div>`;
+}
+function renderSummary() {
+  const box = $('#sumBox'), pg = S.page;
+  if (!pg) { box.innerHTML = `<div class="psec"><span class="muted">אין עמוד פתוח</span></div>`; return; }
+  const { rows, lines, by } = pageStats(pg);
+  const k = pxPerM(pg), refCol = pg.kind === 'sketch' ? 'סקיצה' : 'תשריט';
+  let scaleHtml;
+  if (pg.kind === 'sketch') scaleHtml = `<div class="scale-box">סקיצה בשטח · כל משבצת קטנה 10 ס״מ, גדולה 1 מ׳</div>`;
+  else if (!k) scaleHtml = `<div class="scale-box missing"><b>לא נקבע קנה מידה</b><span class="small">בלי כיול אפשר לרשום מידות בפועל, אבל לא לחשב שטחים מהתשריט.</span><div class="row"><button class="btn sm primary" data-s="line">כיול לפי קו</button><button class="btn sm" data-s="ratio">לפי יחס</button></div></div>`;
+  else scaleHtml = `<div class="scale-box"><div class="row"><span class="grow">קנה מידה: ${pg.scale.how === 'ratio' ? `<b class="num">1:${pg.scale.ratio}</b>` : `לפי קו של <b class="num">${fmt(pg.scale.ref.m)}</b> מ׳`} · <span class="num small muted">${fmt(k, 1)} px/m</span></span><button class="btn sm" data-s="re">כיול מחדש</button></div></div>`;
+  const realTxt = r => r.real != null && isFinite(r.real) ? fmt(r.real) : '<span class="muted">—</span>';
+  const catOf = c => CATS[c] || CATS.other;
+  const tr = r => `<tr class="click ${r.sid === S.selId ? 'sel' : ''}" data-id="${esc(r.sid)}"><td><span class="sw" style="background:${catOf(r.s.cat).c}"></span>${esc(r.s.name || catOf(r.s.cat).n)}</td><td class="n num">${fmt(r.plan)}</td><td class="n num">${realTxt(r)}</td><td class="n">${diffChip(diffPct(r.plan, r.real))}</td></tr>`;
+  const areaTable = (b, label) => {
+    const t = sumCats(b.cats);
+    return `<div class="tbl-wrap"><table class="sum"><thead><tr><th>${label}</th><th class="n">${refCol}</th><th class="n">בפועל</th><th class="n">הפרש</th></tr></thead><tbody>${b.rows.map(tr).join('')}</tbody>
+    <tfoot>${Object.entries(b.cats).filter(([c, v]) => c !== 'walls' && v.n >= 2 && v.n < b.rows.length).map(([c, v]) => `<tr><td class="muted" style="font-weight:400"><span class="sw" style="background:${catOf(c).c}"></span>סה״כ ${catOf(c).n}</td><td class="n num" style="font-weight:400">${k ? fmt(v.plan) : '—'}</td><td class="n num" style="font-weight:400">${v.hasReal ? fmt(v.real) : '—'}</td><td class="n">${v.hasReal && k ? diffChip(diffPct(v.planR, v.real)) : ''}</td></tr>`).join('')}
+    <tr><td>סה״כ ${label}</td><td class="n num">${k ? fmt(t.plan) : '—'}</td><td class="n num">${t.hasReal ? fmt(t.real) : '—'}</td><td class="n">${t.hasReal && k ? diffChip(diffPct(t.planR, t.real)) : ''}</td></tr></tfoot></table></div>`;
+  };
+  let areaSecs = '';
+  if (!rows.length) areaSecs = `<div class="psec"><h3>שטחים <small>מ״ר</small></h3><span class="muted small">עוד אין שטחים בעמוד. בחרי בכלי "קירות" והקישי על הפינות.</span></div>`;
+  if (by.net.rows.length) areaSecs += `<div class="psec"><h3>שטחים <small>מ״ר${by.net.cats.walls ? ' · הסה״כ כולל קירות' : ''}</small></h3>${areaTable(by.net, 'שטחים')}</div>`;
+  if (by.gross.rows.length) areaSecs += `<div class="psec"><h3>שטחים ברוטו <small>מ״ר · כולל קירות</small></h3>${areaTable(by.gross, 'ברוטו')}${wallNote(sumCats(by.net.cats), sumCats(by.gross.cats), k)}</div>`;
+  const lineHtml = lines.length ? `<div class="tbl-wrap"><table class="sum"><thead><tr><th>מידה</th><th class="n">${refCol}</th><th class="n">בפועל</th><th class="n">הפרש</th></tr></thead><tbody>${lines.map((r, i) => `<tr class="click ${r.sid === S.selId ? 'sel' : ''}" data-id="${esc(r.sid)}"><td>${esc(r.s.label || 'מידה ' + (i + 1))}</td><td class="n num">${fmt(r.plan)}</td><td class="n num">${realTxt(r)}</td><td class="n">${diffChip(diffPct(r.plan, r.real))}</td></tr>`).join('')}</tbody></table></div>` : '';
+
+  let propHtml = '';
+  const allPages = pages();
+  if (allPages.length > 1) {
+    const all = { net: {}, gross: {} }; let missingScale = false;
+    // pages can be separate floors (added up) or another plan of the same unit (left out): each page has a checkbox
+    const pageList = allPages.map(p => { const t = sumCats(pageStats(p).by.net.cats); return `<label class="row small" style="gap:8px;cursor:pointer"><input type="checkbox" data-incl="${esc(p.id)}" ${p.inTotal === false ? '' : 'checked'}><span class="grow">${esc(p.name || 'עמוד')}</span><span class="num">${pxPerM(p) ? fmt(t.plan) : '—'}</span></label>`; }).join('');
+    allPages.filter(p => p.inTotal !== false).forEach(p => {
+      const st = pageStats(p);
+      if (!pxPerM(p) && st.rows.length) missingScale = true;
+      ['net', 'gross'].forEach(kd => Object.entries(st.by[kd].cats).forEach(([c, v]) => { const a = all[kd][c] ||= { plan: 0, real: 0, hasReal: false }; a.plan += v.plan; a.planR = (a.planR || 0) + (v.planR || 0); a.real += v.real; a.hasReal ||= v.hasReal; }));
+    });
+    const tbl = (cats, label) => { const t = sumCats(cats); return `<div class="tbl-wrap"><table class="sum"><thead><tr><th>${label}</th><th class="n">תשריט</th><th class="n">בפועל</th><th class="n">הפרש</th></tr></thead><tbody>${Object.entries(cats).map(([c, v]) => `<tr><td><span class="sw" style="background:${catOf(c).c}"></span>${catOf(c).n}</td><td class="n num">${fmt(v.plan)}</td><td class="n num">${v.hasReal ? fmt(v.real) : '—'}</td><td class="n">${v.hasReal ? diffChip(diffPct(v.planR, v.real)) : ''}</td></tr>`).join('')}</tbody><tfoot><tr><td>סה״כ ${label}</td><td class="n num">${fmt(t.plan)}</td><td class="n num">${t.hasReal ? fmt(t.real) : '—'}</td><td class="n">${t.hasReal ? diffChip(diffPct(t.planR, t.real)) : ''}</td></tr></tfoot></table></div>`; };
+    const hasN = Object.keys(all.net).length, hasG = Object.keys(all.gross).length;
+    const nIn = allPages.filter(p => p.inTotal !== false).length;
+    propHtml = `<div class="psec"><h3>כל הנכס <small>${nIn} מתוך ${allPages.length} עמודים נספרים</small></h3>
+      <div style="display:grid;gap:6px"><span class="calc">סמני אילו עמודים לחבר לסה״כ. קומות נפרדות: כן. תשריט נוסף של אותה דירה: לא.</span>${pageList}</div>
+      ${hasN ? tbl(all.net, 'שטחים') : ''}${hasG ? tbl(all.gross, 'ברוטו') : ''}${hasN && hasG ? wallNote(sumCats(all.net), sumCats(all.gross), true) : ''}${!hasN && !hasG ? '<span class="muted small">עוד אין שטחים.</span>' : ''}${missingScale ? '<span class="calc">יש עמודים ללא קנה מידה. השטחים שלהם לא נספרו בעמודת התשריט.</span>' : ''}</div>`;
+  }
+  const notes = pg.shapes.filter(s => s.t === 'text');
+  box.innerHTML = `<div class="psec"><h3>${esc(pg.name || 'עמוד')} <small>${by.net.rows.filter(r => !r.walls).length} שטחים · ${lines.length} מידות</small></h3>${scaleHtml}</div>
+    ${areaSecs}
+    ${lines.length ? `<div class="psec"><h3>מידות קירות <small>מטר</small></h3>${lineHtml}</div>` : ''}
+    ${notes.length ? `<div class="psec"><h3>הערות</h3>${notes.map(n => `<div class="small" data-id="${n.id}" style="cursor:pointer">• ${esc(n.text)}</div>`).join('')}</div>` : ''}
+    ${propHtml}
+    <div class="psec"><h3>ייצוא</h3><div class="row"><button class="btn sm" data-x="copy">העתקת טבלה</button><button class="btn sm" data-x="csv">טבלה לתיקייה (CSV)</button><button class="btn sm" data-x="img">תמונת העמוד לתיקייה</button></div><span class="calc">הקבצים נשמרים בתיקיית "${SUB}" של התיק. הטבלה המועתקת מודבקת ישירות ב-Word או ב-Excel.</span></div>
+    ${Store.kind === 'desktop' ? `<div class="psec"><h3>דוח PDF <small>בתיקיית "${SUB}" של התיק</small></h3><span class="calc">הדוח מתעדכן לבד כמה שניות אחרי כל שינוי, וכשחוזרים לרשימת הנכסים. אפשר לפתוח אותו גם מהטלפון דרך OneDrive.</span><div class="row"><button class="btn sm" data-x="pdf">עדכון הדוח עכשיו</button><button class="btn sm" data-x="openpdf">פתיחת הדוח</button></div></div>` : ''}`;
+}
+$('#sumBox').addEventListener('change', e => {
+  const id = e.target.dataset?.incl; if (!id) return;
+  const p = S.prop.pages.find(x => x.id === id); if (!p) return;
+  p.inTotal = e.target.checked; markDirty(false); renderSummary();
+});
+$('#sumBox').onclick = e => {
+  if (e.target.closest('label')) return;
+  const r = e.target.closest('[data-id]'); if (r) { selectById(r.dataset.id); return; }
+  const s = e.target.closest('[data-s]'); if (s) { if (s.dataset.s === 'ratio') scaleByRatio(); else if (s.dataset.s === 're') recalibrate(); else { setTool('scale'); if (mobile()) { S.panelOpen = false; renderPanel(); renderTools(); } } return; }
+  const x = e.target.closest('[data-x]'); if (x) exportAs(x.dataset.x);
+};
+
+/* ================= Export ================= */
+/* ---------- PDF report in the case folder (computer only): a summary page, then each plan with its markings ---------- */
+// the report sits with the rest of the measurements, in the case's "מדידות תשריט" folder
+const reportPath = () => `${S.folder}/דוח מדידות - ${(S.prop.name || 'נכס').replace(/[\\/:*?"<>|]/g, ' ')}.pdf`;
+function loadImage(rel) {
+  return Store.imageUrl(rel).then(u => u && new Promise(res => { const im = new Image(); im.onload = () => res(im); im.onerror = () => res(null); im.src = u; })).catch(() => null);
+}
+function reportSummaryPages() {
+  const PW = 1240, PH = 1754, M = 80, out = [];
+  let c, x, y;
+  const FONT = '"IBM Plex Sans Hebrew", "Segoe UI", Arial, sans-serif';
+  const newPage = () => { c = document.createElement('canvas'); c.width = PW; c.height = PH; x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, PW, PH); out.push(c); y = M; };
+  const txt = (t, px, size, o = {}) => { x.font = `${o.bold ? 700 : 400} ${size}px ${o.num ? '"IBM Plex Mono", Consolas, monospace' : FONT}`; x.direction = o.num ? 'ltr' : 'rtl'; x.fillStyle = o.color || '#16202B'; x.textAlign = o.num ? 'right' : (o.align || 'right'); x.fillText(String(t), px, y); };
+  const need = h => { if (y + h > PH - M) newPage(); };
+  const rule = (col = '#D3D9E0') => { x.fillStyle = col; x.fillRect(M, y + 10, PW - 2 * M, 1.5); };
+  // columns from the right: name, type, plan, actual, diff
+  const C = [PW - M, PW - M - 430, PW - M - 600, PW - M - 790, PW - M - 960];
+  const row = (cells, o = {}) => { need(40); cells.forEach((t, i) => { if (t !== '' && t != null) txt(t, C[i], o.size || 22, { bold: o.bold, color: o.color, num: i >= 2 }); }); y += 14; rule(o.ruleCol); y += 26; };
+  const pct = (p, r) => { const d = diffPct(p, r); return d == null ? '' : (d > 0 ? '+' : '') + fmt(d, 1) + '%'; };
+  newPage();
+  txt('דוח מדידות', PW - M, 44, { bold: true }); y += 54;
+  txt(S.prop.name || '', PW - M, 30, { bold: true }); y += 40;
+  txt([S.prop.address, 'עודכן ' + new Date().toLocaleString('he-IL', { dateStyle: 'short', timeStyle: 'short' })].filter(Boolean).join(' · '), PW - M, 22, { color: '#5A6674' }); y += 30;
+  rule('#16202B'); y += 50;
+  const allNet = {}, allGross = {};
+  pages().forEach(p => {
+    const st = pageStats(p), k = pxPerM(p), ref = p.kind === 'sketch' ? 'סקיצה' : 'תשריט';
+    need(140);
+    txt(p.name || 'עמוד', PW - M, 30, { bold: true }); y += 34;
+    txt(p.kind === 'sketch' ? 'סקיצה בשטח' : !k ? 'לא נקבע קנה מידה' : p.scale.how === 'ratio' ? 'קנה מידה 1:' + p.scale.ratio : 'כויל לפי קו של ' + fmt(p.scale.ref.m) + ' מ׳', PW - M, 20, { color: '#5A6674' }); y += 40;
+    ['net', 'gross'].forEach(kd => {
+      const b = st.by[kd]; if (!b.rows.length) return;
+      need(120);
+      txt(b.cats.walls ? 'שטחים (מ״ר) · הסה״כ כולל קירות' : 'שטחים (מ״ר)', PW - M, 24, { bold: true, color: '#1F4FD1' }); y += 36;
+      row(['שטח', 'סוג', ref, 'בפועל', 'הפרש'], { size: 18, color: '#5A6674' });
+      b.rows.forEach(r => row([r.s.name || (CATS[r.s.cat] || CATS.other).n, r.walls ? '' : (CATS[r.s.cat] || CATS.other).n, fmt(r.plan), r.walls ? '' : r.real != null && isFinite(r.real) ? fmt(r.real) : '—', pct(r.plan, r.real)], r.walls ? { color: '#4A5562' } : {}));
+      const t = sumCats(b.cats);
+      row(['סה״כ ' + MEAS[kd], '', k ? fmt(t.plan) : '—', t.hasReal ? fmt(t.real) : '—', t.hasReal && k ? pct(t.planR, t.real) : ''], { bold: true, ruleCol: '#fff' });
+      if (p.inTotal !== false) Object.entries(b.cats).forEach(([cat, v]) => { const a = (kd === 'net' ? allNet : allGross)[cat] ||= { plan: 0, real: 0, hasReal: false }; a.plan += v.plan; a.planR = (a.planR || 0) + (v.planR || 0); a.real += v.real; a.hasReal ||= v.hasReal; });
+      y += 10;
+    });
+    const n = sumCats(st.by.net.cats), g = sumCats(st.by.gross.cats);
+    if (k && n.plan && g.plan) { need(40); txt(`קירות (ברוטו פחות נטו): ${fmt(g.plan - n.plan)} מ״ר · ${fmt((g.plan - n.plan) / n.plan * 100, 1)}% מהנטו`, PW - M, 20, { color: '#5A6674' }); y += 44; }
+    if (st.lines.length) {
+      need(120); txt('מידות קירות (מ׳)', PW - M, 24, { bold: true, color: '#E09A00' }); y += 36;
+      row(['מידה', '', ref, 'בפועל', 'הפרש'], { size: 18, color: '#5A6674' });
+      st.lines.forEach((r, i) => row([r.s.label || 'מידה ' + (i + 1), '', fmt(r.plan), r.real != null && isFinite(r.real) ? fmt(r.real) : '—', pct(r.plan, r.real)]));
+    }
+    const notes = (p.shapes || []).filter(s => s.t === 'text');
+    if (notes.length) { need(80); txt('הערות', PW - M, 24, { bold: true }); y += 34; notes.forEach(nt => { need(34); txt('• ' + nt.text.replace(/\n/g, ' '), PW - M, 20); y += 32; }); }
+    y += 30;
+  });
+  if (pages().length > 1 && (Object.keys(allNet).length || Object.keys(allGross).length)) {
+    need(160); rule('#16202B'); y += 50;
+    txt('כל הנכס', PW - M, 30, { bold: true }); y += 34;
+    txt('נספרו בסה״כ: ' + pages().filter(p => p.inTotal !== false).map(p => p.name || 'עמוד').join(', '), PW - M, 20, { color: '#5A6674' }); y += 40;
+    [['net', allNet], ['gross', allGross]].forEach(([kd, cats]) => {
+      if (!Object.keys(cats).length) return;
+      row([MEAS[kd], '', 'תשריט', 'בפועל', 'הפרש'], { size: 18, color: '#5A6674' });
+      Object.entries(cats).forEach(([cat, v]) => row([(CATS[cat] || CATS.other).n, '', fmt(v.plan), v.hasReal ? fmt(v.real) : '—', v.hasReal ? pct(v.planR, v.real) : '']));
+      const t = sumCats(cats); row(['סה״כ ' + MEAS[kd], '', fmt(t.plan), t.hasReal ? fmt(t.real) : '—', t.hasReal ? pct(t.planR, t.real) : ''], { bold: true, ruleCol: '#fff' }); y += 10;
+    });
+  }
+  return out;
+}
+async function reportPlanPage(p) {
+  migratePage(p);
+  const img = p.kind === 'plan' && p.img ? await loadImage(p.img) : null;
+  if (p.kind === 'plan' && !img) return null;
+  const HEAD = 70; let w, h, V;
+  if (p.kind === 'plan') { const k = Math.min(1, 2600 / Math.max(p.w, p.h)); w = Math.round(p.w * k); h = Math.round(p.h * k); V = { s: k, tx: 0, ty: HEAD }; }
+  else {
+    const b = shapeBounds(p, 100); if (!b) return null;
+    const s = 2200 / Math.max(b[2] - b[0], b[3] - b[1]); w = Math.round((b[2] - b[0]) * s); h = Math.round((b[3] - b[1]) * s); V = { s, tx: -b[0] * s, ty: -b[1] * s + HEAD };
+  }
+  const c = document.createElement('canvas'); c.width = w; c.height = h + HEAD;
+  const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height);
+  x.save(); x.beginPath(); x.rect(0, HEAD, w, h); x.clip();
+  renderScene(x, p, V, w, h + HEAD, { ui: false, img, sel: null, fill: S.fill, dims: S.dims, labelK: Math.max(1.4, Math.max(w, h) / 1500) });
+  x.restore();
+  x.font = '700 30px "IBM Plex Sans Hebrew", "Segoe UI", Arial, sans-serif'; x.direction = 'rtl'; x.textAlign = 'right'; x.fillStyle = '#16202B';
+  x.fillText(`${S.prop.name || ''} · ${p.name || ''}`, w - 30, 46);
+  return c;
+}
+let reportBusy = false;
+/** Writes the PDF report next to the case files. quiet: no messages unless something goes wrong. */
+async function makeReport(quiet) {
+  if (Store.kind !== 'desktop' || !S.prop || reportBusy) return;
+  reportBusy = true; S.reportDirty = false;
+  try {
+    const canv = reportSummaryPages();
+    for (const p of pages()) { const c = await reportPlanPage(p); if (c) canv.push(c); }
+    const b64 = [];
+    for (const c of canv) b64.push(await blobToB64(await canvasToBlob(c, 0.85)));
+    const rel = reportPath(), r = await Desk.api.write_pdf(rel, b64);
+    if (r?.error) { S.reportDirty = true; if (!quiet) toast(r.error, 6000); }
+    else if (!quiet) toast('הדוח נשמר בתיקיית "' + SUB + '": ' + rel.split('/').pop(), 4500);
+  } catch (e) { console.error(e); S.reportDirty = true; if (!quiet) toast('יצירת הדוח נכשלה: ' + (e.message || e)); }
+  finally { reportBusy = false; }
+}
+/** Refreshes the report a little while after the last change, and when the report is older than the data. */
+function reportSoon(ms = 20000) { if (Store.kind !== 'desktop') return; S.reportDirty = true; clearTimeout(S.reportTimer); S.reportTimer = setTimeout(() => makeReport(true), ms); }
+async function reportIfStale() {
+  if (Store.kind !== 'desktop' || !S.prop) return;
+  const v = await Store.stat(reportPath()).catch(() => null);
+  if (!v || Number(v) / 1e6 < (S.prop.updated || 0)) reportSoon(3000);
+}
+
+function tableRows() {
+  const out = [['עמוד', 'פריט', 'סוג', 'חדר / קירות', 'לפי תשריט', 'בפועל', 'הפרש %']];
+  const pct = r => { const d = diffPct(r.plan, r.real); return d == null ? '' : d.toFixed(1); };
+  pages().forEach(p => {
+    const st = pageStats(p);
+    st.rows.forEach(r => out.push([p.name, r.s.name || '', CATS[r.s.cat]?.n || '', r.walls ? 'קירות' : 'חדר', r.plan != null ? r.plan.toFixed(2) : '', r.real != null && isFinite(r.real) ? r.real.toFixed(2) : '', pct(r)]));
+    st.lines.forEach(r => out.push([p.name, r.s.label || 'מידה', 'אורך קיר', 'מטר', r.plan != null ? r.plan.toFixed(2) : '', r.real != null && isFinite(r.real) ? r.real.toFixed(2) : '', pct(r)]));
+  });
+  return out;
+}
+async function exportAs(kind) {
+  if (kind === 'pdf') { clearTimeout(S.reportTimer); toast('יוצר דוח…'); return makeReport(false); }
+  if (kind === 'openpdf') {
+    if (S.reportDirty || !(await Store.stat(reportPath()).catch(() => null))) { clearTimeout(S.reportTimer); await makeReport(true); }
+    return Desk.api.open_path(reportPath());
+  }
+  if (kind === 'copy') {
+    const tsv = tableRows().map(r => r.join('\t')).join('\n');
+    try { await navigator.clipboard.writeText(tsv); toast('הטבלה הועתקה'); }
+    catch { await dialog({ title: 'העתקה ידנית', text: 'סמני את הטקסט והעתיקי (Ctrl+C).', ok: '', cancel: 'סגירה', html: `<textarea class="input" style="min-height:180px" readonly onfocus="this.select()">${esc(tsv)}</textarea>` }); }
+    return;
+  }
+  try {
+    let rel;
+    if (kind === 'csv') {
+      const csv = '﻿' + tableRows().map(r => r.map(c => /[",\n]/.test(c) ? '"' + String(c).replace(/"/g, '""') + '"' : c).join(',')).join('\r\n');
+      rel = `${S.folder}/סיכום מדידות.csv`;
+      await Store.writeBlob(rel, new Blob([csv], { type: 'text/csv' }));
+    }
+    if (kind === 'img') {
+      const pg = S.page; let w, h, V;
+      if (pg.kind === 'plan' && pg.w) { const k = Math.min(1, 5000 / Math.max(pg.w, pg.h)); w = Math.round(pg.w * k); h = Math.round(pg.h * k); V = { s: k, tx: 0, ty: 0 }; }
+      else {
+        const b = shapeBounds(pg, 100); if (!b) return toast('אין מה לייצא');
+        const s = 2400 / Math.max(b[2] - b[0], b[3] - b[1]); w = Math.round((b[2] - b[0]) * s); h = Math.round((b[3] - b[1]) * s); V = { s, tx: -b[0] * s, ty: -b[1] * s };
+      }
+      if (pg.kind === 'plan' && !S.img) return toast('תמונת התשריט עוד לא נטענה');
+      const c = document.createElement('canvas'); c.width = w; c.height = h;
+      renderScene(c.getContext('2d'), pg, V, w, h, { ui: false, img: S.img, sel: null, fill: S.fill, dims: S.dims, labelK: Math.max(1.4, Math.max(w, h) / 1500) });
+      const blob = await canvasToBlob(c, 0.9);
+      rel = `${S.folder}/${(pg.name || 'עמוד').replace(/[\\/:*?"<>|]/g, ' ')} - מדידות.jpg`;
+      await Store.writeBlob(rel, blob);
+    }
+    toast('נשמר בתיקייה: ' + rel.split('/').pop(), 4000);
+  } catch (e) { toast('הייצוא נכשל: ' + (e?.message || e)); }
+}
+
+/* ================= Keyboard ================= */
+document.addEventListener('keydown', e => {
+  if ($('#editor').hidden || !$('#modal').hidden) return;
+  const typing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName);
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !typing) { e.preventDefault(); undo(); return; }
+  if (typing) return;
+  if (S.tool === 'area' && S.draft && S.segMode !== 'arc' && /^[0-9.,]$/.test(e.key) && $('#walkLen')) {
+    const box = $('#walkLen'); box.focus(); box.value += e.key === ',' ? '.' : e.key; S.lenTyped = box.value; e.preventDefault(); draw(); return;
+  }
+  if (e.key === 'Escape') { if (S.draft) S.draft = null; else S.selId = null; renderPanel(false); draw(); }
+  if (e.key === 'Enter' && S.draft?.t === 'chain') { S.draft = null; renderCtx(); draw(); }
+  if ((e.key === 'Delete' || e.key === 'Backspace') && S.selId) deleteSel();
+  const map = { v: 'pan', a: 'area', r: 'tape', m: 'line', t: 'text', p: 'pen', s: 'scale', e: 'erase' }; if (map[e.key] && S.page && !(map[e.key] === 'scale' && S.page.kind === 'sketch')) setTool(map[e.key]);
+});
+
+/* ================= Boot ================= */
+async function boot() {
+  const isDesk = new URLSearchParams(location.search).has('desktop');
+  const mb = $('#modeBanner');
+  if (isDesk) { Store = Desk; await Desk.init(); }
+  else if (CFG.clientId) {
+    Store = Graph;
+    let signedIn = false;
+    try { signedIn = await Graph.init(); } catch (e) { console.error(e); $('#loginText').textContent = 'החיבור לשירות של מיקרוסופט נכשל: ' + e.message; }
+    if (!signedIn) {
+      $('#login').hidden = false;
+      $('#loginBtn').onclick = () => Graph.msal ? Graph.login() : location.reload();
+      return;
+    }
+    mb.hidden = false;
+    mb.innerHTML = `<span class="grow">מחוברת ל-OneDrive: <b>${esc(Graph.account.username)}</b></span><button class="btn sm" id="logout">התנתקות</button>`;
+    $('#logout').onclick = () => Graph.logout();
+  } else {
+    Store = Demo; Demo.init();
+    mb.hidden = false; mb.classList.add('warn');
+    mb.textContent = 'מצב בדיקה: הקבצים נשמרים רק בדפדפן הזה. בתוכנה במחשב, או בטלפון אחרי החיבור ל-OneDrive, הם נשמרים בתיקיית התיק.';
+  }
+  await showHome();
+  const asked = new URLSearchParams(location.search).get('open');   // the program was opened from a .tsm file
+  if (asked) {
+    const r = await readProp(asked).catch(() => null);
+    if (r) { if (!S.index.find(p => p.folder === asked)) await upsertIndex(asked, r.data); return openProp(asked); }
+    toast('לא ניתן לפתוח את קובץ המדידה. הוא צריך להיות בתוך OneDrive.', 6000);
+  }
+  let last = null; try { last = localStorage.getItem('pm.last'); } catch {}
+  if (last && S.index.find(p => p.folder === last)) openProp(last);
+  if (document.fonts) document.fonts.ready.then(draw);
+}
+boot().catch(e => { console.error(e); toast('שגיאה בפתיחה: ' + e.message, 8000); });
+})();
+</script>
+</body>
+</html>
