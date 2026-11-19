@@ -1390,9 +1390,9 @@ function drawLoupe() {
 
 /* ================= Snapping ================= */
 // snaps to: line ends and junctions ('v'), then a point on an existing wall line ('e'), then 45°/90° and the sketch grid
-function snap(w, prev, base) {
+function snap(w, prev, base, tolPx = 14) {
   S.snapKind = null;
-  const tol = 14 / S.V.s, pg = S.page;
+  const tol = tolPx / S.V.s, pg = S.page;
   let best = null, bd = tol;
   const consider = p => { if (kOf(p) === S.dragKey) return; const d = dist(p, w); if (d < bd) { bd = d; best = p; } };
   for (const e of pg.edges || []) if (visibleLayer(layerOf(e))) { consider(e.a); consider(e.b); }
@@ -1496,6 +1496,7 @@ cv.addEventListener('pointerdown', e => {
   const sp = local(e); ptrs.set(e.pointerId, sp);
   if (ptrs.size === 2) {
     if (gesture?.type === 'pen' && gesture.shape) { S.page.shapes = S.page.shapes.filter(s => s !== gesture.shape); S.undo.pop(); }
+    if (gesture?.type === 'stroke') S.draft = null;
     S.placing = null;
     const [a, b] = [...ptrs.values()];
     gesture = { type: 'pinch', d0: Math.hypot(b[0] - a[0], b[1] - a[1]), c0: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], V0: { ...S.V } };
@@ -1529,6 +1530,10 @@ cv.addEventListener('pointerdown', e => {
   }
   // measuring tape with a mouse: drag from point to point (a plain click still works point by point)
   if (S.tool === 'tape' && e.pointerType !== 'touch') { gesture = { type: 'tapedrag', start: sp, a: snapFor(s2w(sp)), moved: false }; return; }
+  // walls with a finger or a phone pen: drag a line; it straightens near the axes and then asks for the real length
+  if (S.tool === 'area' && S.segMode !== 'arc' && (e.pointerType === 'touch' || e.pointerType === 'pen')) {
+    gesture = { type: 'stroke', start: sp, A: snap(s2w(sp), null, 0, 24), moved: false }; return;
+  }
   if (isDrawTool() && e.pointerType === 'touch') { gesture = { type: 'place' }; startPlacing(sp); return; }
   gesture = { type: 'tap', start: sp, last: sp, moved: false };
 });
@@ -1569,6 +1574,12 @@ cv.addEventListener('pointermove', e => {
     return;
   }
   if (gesture.type === 'pen') { const w = s2w(sp).map(r1), last = gesture.shape.pts.at(-1); if (dist(w, last) * S.V.s > 2.5) { gesture.shape.pts.push(w); draw(); } return; }
+  if (gesture.type === 'stroke') {
+    if (!gesture.moved && Math.hypot(sp[0] - gesture.start[0], sp[1] - gesture.start[1]) < 8) return;
+    gesture.moved = true; S.draft = { t: 'chain', pts: [gesture.A] };
+    gesture.B = strokeEnd(gesture.A, s2w(sp)); gesture.kind = S.snapKind;
+    S.placing = { sx: sp[0], sy: sp[1], w: gesture.B }; draw(); return;
+  }
   if (gesture.type === 'place') { S.placing.sx = sp[0]; S.placing.sy = sp[1]; S.placing.w = snapFor(s2w(sp)); draw(); return; }
   if (gesture.type === 'ndrag') {
     if (!gesture.moved && Math.hypot(sp[0] - gesture.start[0], sp[1] - gesture.start[1]) < 4) return;
@@ -1600,7 +1611,8 @@ function endPointer(e) {
   if (!gesture) return;
   if (gesture.type === 'pinch') { if (ptrs.size === 0) gesture = null; else { const [only] = [...ptrs.values()]; gesture = { type: 'pan', last: only, moved: true }; } return; }
   const g = gesture; gesture = null;
-  if (e.type === 'pointercancel') { S.placing = null; if (g.type === 'vdrag') S.dragKey = null; draw(); return; }
+  if (e.type === 'pointercancel') { S.placing = null; if (g.type === 'vdrag') S.dragKey = null; if (g.type === 'stroke') S.draft = null; draw(); return; }
+  if (g.type === 'stroke') { S.placing = null; if (g.moved && g.B) finishStroke(g.A, g.B, g.kind); else onTapSelect(sp); return; }
   if (g.type === 'tapedrag') { if (!g.moved) onTap(g.a, sp); else { S.hover = null; renderCtx(); draw(); } }
   else if (g.type === 'erase') { if (!g.dragging) { gesture = g; eraseAt(sp, false); gesture = null; } if (g.n) { markDirty(); renderPanel(false); toast(g.n === 1 ? 'נמחק. ↶ מחזיר' : `נמחקו ${g.n}. ↶ מחזיר`); } }
   else if (g.type === 'tap') onTap(snapFor(s2w(sp)), sp);
@@ -1669,14 +1681,49 @@ function chainTap(w, onExisting) {
   }
   renderPanel(); draw();
 }
+/** Where a finger-drawn wall ends: an existing corner wins; otherwise a line close to horizontal/vertical
+ *  (within 10°) or to a diagonal (within 5°) is made exactly straight. */
+function strokeEnd(A, w) {
+  const ang = Math.atan2(w[1] - A[1], w[0] - A[0]), st = Math.PI / 4, k = Math.round(ang / st);
+  const off = Math.abs(ang - k * st) * 180 / Math.PI, straight = off < (k % 2 === 0 ? 10 : 5);
+  const was = S.ortho; S.ortho = straight;
+  try { return snap(w, A, 0, 22); } finally { S.ortho = was; }
+}
+/** After a finger-drawn wall: ask for the length measured on site and fit the line to it. */
+async function finishStroke(A, B, kind) {
+  const pg = S.page;
+  if (dist(A, B) * S.V.s < 10) { S.draft = null; draw(); return; }
+  const k = pxPerM(pg);
+  if (k && kind !== 'v') {   // a line that ends on an existing corner closes the room, so its length is already set
+    S.draft = { t: 'chain', pts: [A] }; S.hover = B; draw();
+    const cur = Math.round(dist(A, B) / k * 100) / 100;
+    const v = await dialog({ title: 'אורך הקיר', ok: 'עדכון', cancel: 'להשאיר כמו שצויר',
+      text: `הקו ששורטט הוא <b class="num">${fmt(cur)}</b> מ׳. הקלידי את המידה בפועל.`,
+      fields: [{ id: 'len', label: 'אורך במטרים', num: true, value: String(cur) }],
+      onOpen: d => { const i = d.querySelector('#dlg_len'); i.focus(); i.select(); } });
+    S.hover = null;
+    const L = v && evalExpr(v.len);
+    if (L && isFinite(L) && L > 0 && Math.abs(L - cur) >= 0.005) {
+      const n = dist(A, B), m = L * k;
+      B = [r1(A[0] + (B[0] - A[0]) / n * m), r1(A[1] + (B[1] - A[1]) / n * m)];
+      const near = (pg.edges || []).filter(e => layerOf(e) === S.layer).flatMap(e => [e.a, e.b]).find(q => dist(q, B) < Math.max(EPS, m * 0.005));
+      if (near) B = near.slice();
+    } else if (v && v.len.trim() && !(L > 0)) toast('האורך לא הובן, הקו נשאר כמו שצויר');
+  }
+  S.draft = { t: 'chain', pts: [A] };
+  chainTap(B, (pg.edges || []).some(e => layerOf(e) === S.layer && segDist(B, e.a, e.b) < EPS));
+  S.draft = null; renderCtx(); draw();
+}
+/** A tap that only selects: a note, measure or pen line, then a wall, then an area. */
+function onTapSelect(sp) {
+  const item = hitItem(sp); if (item) { S.selId = item.id; renderPanel(true); draw(); return; }
+  const e = hitEdge(sp); if (e) { S.selId = 'e:' + e.id; renderPanel(true); draw(); return; }
+  const f = hitFace(sp); if (f) return selectFace(f);
+  S.selId = null; renderPanel(false); draw();
+}
 async function onTap(w, sp) {
   const pg = S.page; if (!pg) return;
-  if (S.tool === 'pan' || S.tool === 'pen') {
-    const item = hitItem(sp); if (item) { S.selId = item.id; renderPanel(true); draw(); return; }
-    const e = hitEdge(sp); if (e) { S.selId = 'e:' + e.id; renderPanel(true); draw(); return; }
-    const f = hitFace(sp); if (f) return selectFace(f);
-    S.selId = null; renderPanel(false); draw(); return;
-  }
+  if (S.tool === 'pan' || S.tool === 'pen') return onTapSelect(sp);
   if (S.tool === 'area') {
     // a typed length: the tap only gives the direction (not for the bend of an arc)
     const L = evalExpr($('#walkLen')?.value);
@@ -1782,7 +1829,7 @@ function renderCtx() {
       parts.push(`<span class="hint">${hint}</span><button class="btn sm primary" data-c="endChain">סיום</button>`);
       if (pxPerM(S.page) && !arc) parts.push(`<div class="walk"><input class="input num" id="walkLen" inputmode="decimal" placeholder="אורך מ׳" aria-label="אורך הקיר הבא במטרים" value="${esc(S.lenTyped || '')}"><div class="dirs">${[['↖', -1, -1], ['↑', 0, -1], ['↗', 1, -1], ['←', -1, 0], ['', 0, 0], ['→', 1, 0], ['↙', -1, 1], ['↓', 0, 1], ['↘', 1, 1]].map(([s, x, y]) => s ? `<button data-dx="${x}" data-dy="${y}" aria-label="קיר לכיוון ${s}">${s}</button>` : '<span></span>').join('')}</div><span class="calc" style="max-width:130px">אורך + Enter: בכיוון של העכבר. או אורך + הקשה / חץ</span></div>`);
     } else {
-      parts.push(`<span class="hint">${arc ? 'קשת: הקישי בנקודת ההתחלה' : 'הקישי בפינות החדר. קו בין שני קווים קיימים מחלק את השטח. קונטור נוסף מסביב לחדרים מוסיף את שטח הקירות לסה״כ'}</span>${pxPerM(S.page) && !arc ? '<button class="btn sm" data-c="rect">חדר מלבני לפי מידות…</button>' : ''}`);
+      parts.push(`<span class="hint">${arc ? 'קשת: הקישי בנקודת ההתחלה' : matchMedia('(pointer:coarse)').matches ? 'גררי קיר עם האצבע מפינה לפינה. קו כמעט ישר מתיישר לבד, ובסוף כל קו מקלידים את המידה בפועל. קו שמגיע לפינה קיימת סוגר את החדר' : 'הקישי בפינות החדר. קו בין שני קווים קיימים מחלק את השטח. קונטור נוסף מסביב לחדרים מוסיף את שטח הקירות לסה״כ'}</span>${pxPerM(S.page) && !arc ? '<button class="btn sm" data-c="rect">חדר מלבני לפי מידות…</button>' : ''}`);
     }
   }
   else if (S.tool === 'tape') {
