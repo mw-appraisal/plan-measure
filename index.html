@@ -298,7 +298,7 @@ const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 
 const clone = o => JSON.parse(JSON.stringify(o));
 const r1 = v => Math.round(v * 10) / 10;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-const APP_VER = '19.11.26-9';   // raise on every update: the phone compares it and loads the new version
+const APP_VER = '19.11.26-10';   // raise on every update: the phone compares it and loads the new version
 const CFG = Object.assign({ clientId: '', authority: 'https://login.microsoftonline.com/organizations', casesStart: 'MW שמאות מקרקעין', indexPath: 'מדידות תשריטים/נכסים.json' }, window.PM_CONFIG || {});
 // the measurements file has the program's own extension (.tsm), so double-clicking it opens the program
 const SUB = 'מדידות תשריט', DATA_FILE = 'מדידות.tsm', OLD_DATA_FILE = 'מדידות.json';
@@ -1392,7 +1392,7 @@ function renderScene(c, pg, V, w, h, o) {
       c.strokeStyle = OK_C; c.lineWidth = 2.8 * k; c.lineJoin = 'round'; c.lineCap = 'round'; c.stroke();
     }
   }
-  if (o.ui && sel && S.tool === 'pan') {
+  if (o.ui && sel && (S.tool === 'pan' || (chkSegMode() && sel.kind === 'shape' && isSeg(sel.s)))) {
     handlePoints(sel).forEach(p => { const q = P(p); c.beginPath(); c.arc(q[0], q[1], 7, 0, Math.PI * 2); c.fillStyle = '#fff'; c.fill(); c.lineWidth = 2.5; c.strokeStyle = '#1F4FD1'; c.stroke(); });
   }
 }
@@ -1541,6 +1541,13 @@ function hitHandle(sp) {
   return null;
 }
 
+const isSeg = s => !!s && (s.t === 'line' || s.t === 'added' || s.t === 'gone');
+/** The selected measure / added / missing wall, when the touch is on the line itself (not on an end). */
+function hitSelSeg(sp) {
+  const sel = findSel(); if (sel?.kind !== 'shape' || !isSeg(sel.s)) return null;
+  return segDist(s2w(sp), sel.s.a, sel.s.b) < 16 / S.V.s ? sel.s : null;
+}
+
 /* ================= Pointer handling ================= */
 const ptrs = new Map();
 let gesture = null;   // {type:'pinch'|'pan'|'tap'|'drag'|'vdrag'|'pen'|'place'|'erase', ...}
@@ -1576,6 +1583,7 @@ cv.addEventListener('pointerdown', e => {
     if (gesture?.type === 'pen' && gesture.shape) { S.page.shapes = S.page.shapes.filter(s => s !== gesture.shape); S.undo.pop(); }
     if (gesture?.type === 'stroke') S.draft = gesture.prev;
     if (gesture?.type === 'cseg' && gesture.moved) S.draft = null;
+    if (gesture?.type === 'mdrag') { gesture.s.a = gesture.a0; gesture.s.b = gesture.b0; S.undo.pop(); }
     S.placing = null;
     const [a, b] = [...ptrs.values()];
     gesture = { type: 'pinch', d0: Math.hypot(b[0] - a[0], b[1] - a[1]), c0: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], V0: { ...S.V } };
@@ -1594,7 +1602,7 @@ cv.addEventListener('pointerdown', e => {
     }
   }
   // corners move only with the select tool; in drawing tools a tap always places a point
-  const h = S.tool === 'pan' && hitHandle(sp);
+  const h = (S.tool === 'pan' || (chkSegMode() && isSeg(findSel()?.s))) && hitHandle(sp);
   if (h) {
     pushUndo();
     if (h.sel.kind === 'shape') gesture = { type: 'drag', h: { s: h.sel.s, i: h.i }, moved: false };
@@ -1602,6 +1610,9 @@ cv.addEventListener('pointerdown', e => {
     if (e.pointerType === 'touch') startPlacing(sp, true);
     return;
   }
+  // the selected measure or wall line, grabbed in its middle: moves whole, same length and direction
+  const ms = (S.tool === 'pan' || chkSegMode()) && hitSelSeg(sp);
+  if (ms) { pushUndo(); gesture = { type: 'mdrag', s: ms, w0: s2w(sp), a0: ms.a.slice(), b0: ms.b.slice(), start: sp, moved: false }; return; }
   if (S.tool === 'erase') { gesture = { type: 'erase', n: 0, start: sp, dragging: false }; return; }
   if (S.tool === 'pen') {
     pushUndo(); const shape = { id: uid(), t: 'pen', pts: [s2w(sp).map(r1)], color: PEN_C };
@@ -1691,11 +1702,19 @@ cv.addEventListener('pointermove', e => {
     if (S.placing) { S.placing.sx = sp[0]; S.placing.sy = sp[1]; S.placing.w = w; }
     draw(); return;
   }
+  if (gesture.type === 'mdrag') {
+    if (!gesture.moved && Math.hypot(sp[0] - gesture.start[0], sp[1] - gesture.start[1]) < 6) return;
+    gesture.moved = true;
+    const w = s2w(sp), dx = w[0] - gesture.w0[0], dy = w[1] - gesture.w0[1], s = gesture.s;
+    s.a = [r1(gesture.a0[0] + dx), r1(gesture.a0[1] + dy)]; s.b = [r1(gesture.b0[0] + dx), r1(gesture.b0[1] + dy)];
+    draw(); return;
+  }
   if (gesture.type === 'drag') {
     gesture.moved = true;
     const { s, i } = gesture.h;
     if (s.a) { if (i) s.b = [1e12, 1e12]; else s.a = [1e12, 1e12]; }
-    const w = s.t === 'text' ? s2w(sp).map(r1) : snap(s2w(sp), null, 0);
+    // a measure or wall line straightens near the axes, from its other end
+    const w = s.t === 'text' ? s2w(sp).map(r1) : isSeg(s) ? strokeEnd(i ? s.a : s.b, s2w(sp)) : snap(s2w(sp), null, 0);
     if (s.a) { if (i) s.b = w; else s.a = w; } else s.p = w;
     if (S.placing) { S.placing.sx = sp[0]; S.placing.sy = sp[1]; S.placing.w = w; }
     draw(); return;
@@ -1707,12 +1726,15 @@ function endPointer(e) {
   if (!gesture) return;
   if (gesture.type === 'pinch') { if (ptrs.size === 0) gesture = null; else { const [only] = [...ptrs.values()]; gesture = { type: 'pan', last: only, moved: true }; } return; }
   const g = gesture; gesture = null;
-  if (e.type === 'pointercancel') { S.placing = null; if (g.type === 'vdrag') S.dragKey = null; if (g.type === 'stroke') S.draft = g.prev; if (g.type === 'cseg' && g.moved) S.draft = null; draw(); return; }
+  if (e.type === 'pointercancel') { S.placing = null; if (g.type === 'vdrag') S.dragKey = null; if (g.type === 'stroke') S.draft = g.prev; if (g.type === 'cseg' && g.moved) S.draft = null; if (g.type === 'mdrag') { g.s.a = g.a0; g.s.b = g.b0; S.undo.pop(); } draw(); return; }
   if (g.type === 'cseg') {
     S.placing = null;
     if (g.moved && g.B) return finishCseg(g.A, g.B);
     const d = S.draft?.t === 'cseg' && S.draft.pts.length === 1 ? S.draft : null;
     if (d) return finishCseg(d.pts[0], strokeEnd(d.pts[0], s2w(sp)));   // second tap: the other end
+    const it = hitItem(sp);   // a tap on a line already drawn selects it, to drag its ends or move it
+    if (isSeg(it)) { S.draft = null; S.selId = it.id; renderPanel(true); renderCtx(); draw(); return; }
+    if (S.selId) { S.selId = null; renderPanel(false); }
     S.draft = { t: 'cseg', pts: [g.A] }; renderCtx(); draw(); return;
   }
   if (g.type === 'stroke') {
@@ -1729,7 +1751,16 @@ function endPointer(e) {
   else if (g.type === 'pen') { if (g.shape.pts.length < 2) { S.page.shapes = S.page.shapes.filter(s => s !== g.shape); S.undo.pop(); draw(); } else { g.shape.pts = simplify(g.shape.pts, 1.2 / S.V.s); markDirty(); } }
   else if (g.type === 'ndrag') { if (g.moved) markDirty(); else S.undo.pop(); draw(); }
   else if (g.type === 'vdrag') { S.placing = null; if (g.moved) { endVertexDrag(g); markDirty(); renderSel(); } else { S.dragKey = null; S.undo.pop(); draw(); } }
-  else if (g.type === 'drag') { S.placing = null; if (g.moved) { markDirty(); renderSel(); } else { S.undo.pop(); draw(); } }
+  else if (g.type === 'drag') {
+    S.placing = null;
+    if (g.moved) {
+      // a dragged end of a measure or an added wall sticks to the face of the plan wall it was brought to
+      const { s, i } = g.h;
+      if (isSeg(s) && s.t !== 'gone') { const f = toWalls(i ? s.b : s.a, i ? s.a : s.b)[0]; if (i) s.b = f; else s.a = f; }
+      markDirty(); renderSel();
+    } else { S.undo.pop(); draw(); }
+  }
+  else if (g.type === 'mdrag') { if (g.moved) { markDirty(); renderSel(); } else { S.undo.pop(); if (S.tool === 'pan') onTapSelect(sp); else draw(); } }
   else draw();
 }
 cv.addEventListener('pointerup', endPointer);
@@ -2306,7 +2337,7 @@ function renderSel() {
         <div class="field"><label for="f_meas">נמדד בפועל (מ׳)</label><input class="input num" id="f_meas" inputmode="decimal" value="${esc(s.measured)}" placeholder="4.35"></div>
         <div class="full"><span class="calc" id="f_calc">${calcText(L, real)}</span></div>
       </div>
-      <div class="row"><span class="grow"></span><button class="btn sm danger" id="f_del">מחיקה</button></div></div>`;
+      <div class="row"><span class="grow"></span><button class="btn sm danger" id="f_del">מחיקה</button></div><span class="calc">לשינוי: גררי עיגול בקצה כדי למתוח, לקצר או לשנות כיוון. גררי את הקו עצמו כדי להזיז אותו באותו אורך.</span></div>`;
   } else if (sel.s.t === 'text') {
     const s = sel.s, st = noteStyle(s);
     const sw = (group, map, cur) => Object.entries(map).map(([k, [c, n]]) => `<button type="button" class="swatch" data-${group}="${k}" aria-pressed="${cur === k}" title="${n}" style="${c ? 'background:' + c : ''}">${c ? '' : '∅'}</button>`).join('');
@@ -2327,7 +2358,7 @@ function renderSel() {
         <div class="field full"><label for="f_name">תיאור</label><input class="input" id="f_name" value="${esc(s.label)}" placeholder="${s.t === 'added' ? 'למשל: חלוקת חדר שינה' : 'למשל: קיר בין מטבח לסלון'}"></div>
         <div class="field"><label>אורך לפי ${ref}</label><div class="input num" style="display:flex;align-items:center;background:var(--surface-2)">${fmt(L)} מ׳</div></div>
       </div>
-      <div class="row"><span class="grow"></span><button class="btn sm danger" id="f_del">מחיקה</button></div></div>`;
+      <div class="row"><span class="grow"></span><button class="btn sm danger" id="f_del">מחיקה</button></div><span class="calc">לשינוי: גררי עיגול בקצה כדי למתוח, לקצר או לשנות כיוון. גררי את הקו עצמו כדי להזיז אותו באותו אורך.</span></div>`;
   } else if (sel.s.t === 'dev') {
     const s = sel.s, A = areaM(pg, s.pts), real = evalExpr(s.measured);
     h = `<div class="psec"><h3>אזור חריגה <small>${s.pts.length} פינות</small></h3>
