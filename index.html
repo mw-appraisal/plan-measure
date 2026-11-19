@@ -297,7 +297,7 @@ const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 
 const clone = o => JSON.parse(JSON.stringify(o));
 const r1 = v => Math.round(v * 10) / 10;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-const APP_VER = '19.11.26-6';   // raise on every update: the phone compares it and loads the new version
+const APP_VER = '19.11.26-7';   // raise on every update: the phone compares it and loads the new version
 const CFG = Object.assign({ clientId: '', authority: 'https://login.microsoftonline.com/organizations', casesStart: 'MW שמאות מקרקעין', indexPath: 'מדידות תשריטים/נכסים.json' }, window.PM_CONFIG || {});
 // the measurements file has the program's own extension (.tsm), so double-clicking it opens the program
 const SUB = 'מדידות תשריט', DATA_FILE = 'מדידות.tsm', OLD_DATA_FILE = 'מדידות.json';
@@ -314,6 +314,19 @@ const CATS = {
   walls:   { n: 'קירות',      c: '#6B7785' },
 };
 const LINE_C = '#E09A00', PEN_C = '#D2342A';
+// permit check on site: ✓ marks, measured dimensions, walls added / missing, deviation areas, floor height
+const OK_C = '#1E8A4C', BAD_C = '#C62828';
+const chkTol = L => Math.max(0.05, L * 0.01);   // a measured length within 5 cm (or 1%) of the plan matches it
+const chkOk = (L, r) => L == null || r == null || !isFinite(r) ? null : Math.abs(r - L) <= chkTol(L) + 1e-9;
+const CHK_MODES = [['ok', '✓ תואם'], ['dim', 'מידה'], ['add', 'קיר נוסף'], ['gone', 'קיר לא קיים'], ['dev', 'חריגה']];
+const CHK_HINTS = {
+  ok: 'הקישי ליד מידה בתשריט שנמדדה ונמצאה תואמת. הקשה על ✓ קיים מוחקת אותו',
+  dim: 'גררי לאורך המידה (או הקישי בשתי נקודות) והקלידי את מה שנמדד בפועל',
+  add: 'גררי קו במקום קיר שקיים בפועל ולא מופיע בתשריט',
+  gone: 'גררי קו על קיר שמופיע בתשריט ולא קיים בפועל',
+  dev: 'הקישי בפינות האזור (סגירת מרפסת, תוספת בנייה). הקשה על הנקודה הראשונה סוגרת',
+};
+const CHK_ST = { ok: ['תואם להיתר', OK_C], minor: ['תואם, עם סטיות קלות', '#B7791F'], dev: ['קיימות חריגות מההיתר', BAD_C] };
 // note styling: size is in screen pixels, like the other labels
 const NOTE_SIZES = [[10, 'קטן'], [12.5, 'רגיל'], [15, 'בינוני'], [18, 'גדול'], [23, 'גדול מאוד'], [30, 'ענק']];
 const NOTE_FG = { ink: ['#16202B', 'שחור'], red: ['#C2362B', 'אדום'], blue: ['#1F4FD1', 'כחול'], green: ['#1E8A4C', 'ירוק'], brown: ['#3d2f00', 'חום'] };
@@ -330,6 +343,7 @@ const IC = {
   erase: '<path d="M8.5 20H20"/><path d="M4.6 15.4l9.9-9.9a2 2 0 012.8 0l2.2 2.2a2 2 0 010 2.8L11 19H8.2z"/><path d="M9.5 10.5l5 5"/>',
   scale: '<rect x="2.5" y="8" width="19" height="8" rx="1"/><path d="M6 8v3M9 8v2M12 8v3M15 8v2M18 8v3"/>',
   sum: '<path d="M4 5h16M4 10h16M4 15h10M4 20h7"/>',
+  chk: '<path d="M9 3.5h6v3H9z"/><path d="M15 5h3.5v15.5h-13V5H9"/><path d="M8.5 13.5l2.5 2.5 4.5-5"/>',
   upload: '<path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v4h16v-4"/>',
   sketch: '<path d="M3 3h18v18H3z" stroke-dasharray="2 2"/><path d="M7 16V8h10v8z"/>',
   folder: '<path d="M3 6.5A1.5 1.5 0 014.5 5H9l2 2h8.5A1.5 1.5 0 0121 8.5v9a1.5 1.5 0 01-1.5 1.5h-15A1.5 1.5 0 013 17.5z" fill="currentColor" fill-opacity=".25"/>',
@@ -510,6 +524,7 @@ S.fill = 'full';
 S.dims = false;
 S.segMode = 'line';   // wall tool: 'line' or 'arc'
 S.lenTyped = '';      // a length typed for the next wall
+S.chkMode = 'ok';     // permit check tool: one of CHK_MODES
 try { S.dims = localStorage.getItem('pm.dims') === '1'; } catch {}
 try { const f = localStorage.getItem('pm.fill'); if (f === 'outline' || f === 'lines') S.fill = f; } catch {}
 const FILL_NAMES = { full: 'שטחים צבועים', outline: 'קונטור ושטח במ״ר, בלי צבע', lines: 'קונטור בלבד' };
@@ -731,7 +746,7 @@ function loadPage(id) {
   if (migratePage(p)) markDirty(false);
   S.page = p; S.pageId = p.id; S.selId = null; S.draft = null; S.undo = []; S.placing = null;
   S.ortho = false;   // any angle; the ∟ button turns on 45°/90° steps
-  if (p.kind === 'sketch' && S.tool === 'scale') S.tool = 'pan';
+  if (p.kind === 'sketch' && (S.tool === 'scale' || S.tool === 'chk')) S.tool = 'pan';
   S.img = null;
   if (p.img) {
     const want = p.img;
@@ -1280,6 +1295,17 @@ function renderScene(c, pg, V, w, h, o) {
     c.lineWidth = (isSel ? 4 : 2.2) * k; c.lineCap = 'round';
     c.beginPath(); c.moveTo(A[0], A[1]); c.lineTo(B[0], B[1]); c.stroke();
   }
+  // deviation areas (closed balcony, addition…): red hatching with a dashed outline
+  for (const s of pg.shapes) if (s.t === 'dev' && s.pts.length > 2) {
+    const q = s.pts.map(P), path = () => { c.beginPath(); q.forEach((p, i) => i ? c.lineTo(p[0], p[1]) : c.moveTo(p[0], p[1])); c.closePath(); };
+    path(); c.fillStyle = 'rgba(198,40,40,.14)'; c.fill();
+    c.save(); path(); c.clip();
+    const xs = q.map(p => p[0]), ys = q.map(p => p[1]), x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys), hh = y1 - y0;
+    c.strokeStyle = 'rgba(198,40,40,.5)'; c.lineWidth = 1.2 * k; c.beginPath();
+    for (let t = x0 - hh; t < x1; t += 9 * k) { c.moveTo(t, y1); c.lineTo(t + hh, y0); }
+    c.stroke(); c.restore();
+    path(); c.strokeStyle = BAD_C; c.lineWidth = (s.id === o.sel ? 3.6 : 2.2) * k; c.setLineDash([7 * k, 4 * k]); c.stroke();
+  }
   c.setLineDash([]);
   if (sel?.kind === 'face') { c.strokeStyle = '#1F4FD1'; c.lineWidth = 3.2 * k; c.beginPath(); sel.f.pts.forEach((p, i) => { const q = P(p); i ? c.lineTo(q[0], q[1]) : c.moveTo(q[0], q[1]); }); c.closePath(); c.stroke(); }
   for (const s of pg.shapes) {
@@ -1290,13 +1316,23 @@ function renderScene(c, pg, V, w, h, o) {
     if (s.t === 'line') {
       const A = P(s.a), B = P(s.b), isSel = s.id === o.sel;
       const ang = Math.atan2(B[1] - A[1], B[0] - A[0]), nx = -Math.sin(ang) * 7 * k, ny = Math.cos(ang) * 7 * k;
-      c.strokeStyle = LINE_C; c.lineWidth = (isSel ? 3 : 2) * k; c.lineCap = 'round';
+      const L = lenM(pg, dist(s.a, s.b)), real = evalExpr(s.measured), ok = chkOk(L, real);
+      // a measured length is green when it matches the plan and red when it does not
+      c.strokeStyle = ok == null ? LINE_C : ok ? OK_C : BAD_C; c.lineWidth = (isSel ? 3 : 2) * k; c.lineCap = 'round';
       c.beginPath(); c.moveTo(A[0], A[1]); c.lineTo(B[0], B[1]);
       c.moveTo(A[0] - nx, A[1] - ny); c.lineTo(A[0] + nx, A[1] + ny); c.moveTo(B[0] - nx, B[1] - ny); c.lineTo(B[0] + nx, B[1] + ny); c.stroke();
-      const L = lenM(pg, dist(s.a, s.b)), real = evalExpr(s.measured);
-      let t = (s.label ? s.label + ' · ' : '') + (L != null ? fmt(L) + ' מ׳' : 'ללא קנה מידה');
-      if (real != null && isFinite(real)) t += '\nבפועל ' + fmt(real) + ' מ׳';
-      pill(t, (A[0] + B[0]) / 2, (A[1] + B[1]) / 2, isSel ? '#1F4FD1' : '#16202B', '#fff', 11.5);
+      let t = (ok ? '✓ ' : '') + (s.label ? s.label + ' · ' : '') + (L != null ? fmt(L) + ' מ׳' : 'ללא קנה מידה');
+      if (real != null && isFinite(real) && !ok) t += '\nבפועל ' + fmt(real) + ' מ׳' + (ok === false ? ` (${real > L ? '+' : ''}${fmt(real - L)})` : '');
+      pill(t, (A[0] + B[0]) / 2, (A[1] + B[1]) / 2, isSel ? '#1F4FD1' : ok == null ? '#16202B' : ok ? OK_C : BAD_C, '#fff', 11.5);
+    }
+    if (s.t === 'added' || s.t === 'gone') {   // a wall built without being on the plan / a plan wall that is not there
+      const A = P(s.a), B = P(s.b), isSel = s.id === o.sel, L = lenM(pg, dist(s.a, s.b));
+      c.strokeStyle = BAD_C; c.lineCap = 'round';
+      if (s.t === 'gone') { c.lineWidth = (isSel ? 4 : 3) * k; c.setLineDash([8 * k, 6 * k]); }
+      else c.lineWidth = (isSel ? 5.5 : 4) * k;
+      c.beginPath(); c.moveTo(A[0], A[1]); c.lineTo(B[0], B[1]); c.stroke(); c.setLineDash([]);
+      const t = (s.t === 'gone' ? '✗ לא קיים' : '+ קיר שנוסף') + (s.label ? ' · ' + s.label : '') + (s.t === 'added' && L != null ? ' · ' + fmt(L) : '');
+      pill(t, (A[0] + B[0]) / 2, (A[1] + B[1]) / 2, isSel ? '#1F4FD1' : BAD_C, '#fff', 11);
     }
   }
   // lengths: every wall on a sketch, the selected area's walls, or the selected line
@@ -1328,10 +1364,26 @@ function renderScene(c, pg, V, w, h, o) {
     }
     pill(t, cc[0], cc[1], isSel ? '#1F4FD1' : outer ? '#4A5562' : 'rgba(255,255,255,.93)', isSel || outer ? '#fff' : '#16202B', 12);
   }
+  for (const s of pg.shapes) if (s.t === 'dev' && s.pts.length > 2) {
+    const q = P(interiorPoint(s.pts)), A = areaM(pg, s.pts), real = evalExpr(s.measured);
+    let t = (s.label || 'חריגה') + '\n' + (A != null ? fmt(A) + ' מ״ר' : '—');
+    if (real != null && isFinite(real)) t += ' · בפועל ' + fmt(real);
+    pill(t, q[0], q[1], s.id === o.sel ? '#1F4FD1' : BAD_C, '#fff', 12);
+  }
   for (const s of pg.shapes) if (s.t === 'text') {
     const q = P(s.p), st = noteStyle(s);
     const box = pill(s.text || 'הערה', q[0], q[1], st.bg, st.fg, st.size, st.bold ? 700 : 500, st.italic, s.id === o.sel ? '#1F4FD1' : null);
     if (o.ui) S.textBoxes[s.id] = box;
+  }
+  // check marks last, so labels never hide them
+  for (const s of pg.shapes) {
+    if (s.t === 'chk') {   // a plan dimension confirmed on site
+      const q = P(s.p), r = 11 * k;
+      c.beginPath(); c.arc(q[0], q[1], r, 0, 7); c.fillStyle = 'rgba(255,255,255,.88)'; c.fill();
+      c.strokeStyle = s.id === o.sel ? '#1F4FD1' : OK_C; c.lineWidth = 2 * k; c.stroke();
+      c.beginPath(); c.moveTo(q[0] - 5 * k, q[1] + .5 * k); c.lineTo(q[0] - 1.5 * k, q[1] + 4.5 * k); c.lineTo(q[0] + 5.5 * k, q[1] - 4.5 * k);
+      c.strokeStyle = OK_C; c.lineWidth = 2.8 * k; c.lineJoin = 'round'; c.lineCap = 'round'; c.stroke();
+    }
   }
   if (o.ui && sel && S.tool === 'pan') {
     handlePoints(sel).forEach(p => { const q = P(p); c.beginPath(); c.arc(q[0], q[1], 7, 0, Math.PI * 2); c.fillStyle = '#fff'; c.fill(); c.lineWidth = 2.5; c.strokeStyle = '#1F4FD1'; c.stroke(); });
@@ -1349,7 +1401,7 @@ function drawDraft() {
     if (S.snapKind === 'e') { ctx.strokeStyle = '#E09A00'; ctx.lineWidth = 2; ctx.strokeRect(q[0] - 6, q[1] - 6, 12, 12); }
   }
   if (!d || !d.pts.length) return;
-  const col = d.t === 'scale' || d.t === 'tape' ? '#D2342A' : d.t === 'line' ? LINE_C : '#1F4FD1';
+  const col = d.t === 'scale' || d.t === 'tape' || d.t === 'dev' ? '#D2342A' : d.t === 'line' ? LINE_C : d.t === 'cseg' ? (S.chkMode === 'dim' ? LINE_C : BAD_C) : '#1F4FD1';
   const pts = (d.t === 'chain' ? d.pts.slice(-1) : d.pts).map(w2s);
   ctx.strokeStyle = col; ctx.lineWidth = 2.2; ctx.setLineDash([]);
   ctx.beginPath(); pts.forEach((q, i) => i ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1])); ctx.stroke();
@@ -1408,7 +1460,7 @@ function snap(w, prev, base, tolPx = 14) {
   let best = null, bd = tol;
   const consider = p => { if (kOf(p) === S.dragKey) return; const d = dist(p, w); if (d < bd) { bd = d; best = p; } };
   for (const e of pg.edges || []) if (visibleLayer(layerOf(e))) { consider(e.a); consider(e.b); }
-  for (const s of pg.shapes) if (s.t === 'line') { consider(s.a); consider(s.b); }
+  for (const s of pg.shapes) if (s.t === 'line' || s.t === 'added' || s.t === 'gone') { consider(s.a); consider(s.b); }
   if (S.draft && S.draft.t !== 'chain') S.draft.pts.slice(0, -1).forEach(consider);
   if (best) { S.snapKind = 'v'; return [best[0], best[1]]; }
   if (S.ortho && prev) {
@@ -1453,8 +1505,13 @@ function hitItem(sp) {
   const w = s2w(sp), tol = 12 / S.V.s, sh = S.page.shapes;
   const note = hitNote(sp); if (note) return note;
   for (let i = sh.length - 1; i >= 0; i--) { const s = sh[i];
-    if (s.t === 'line' && segDist(w, s.a, s.b) < tol) return s;
+    if (s.t === 'chk' && dist(w, s.p) < tol * 1.4) return s;
+    if ((s.t === 'line' || s.t === 'added' || s.t === 'gone') && segDist(w, s.a, s.b) < tol) return s;
     if (s.t === 'pen') for (let j = 1; j < s.pts.length; j++) if (segDist(w, s.pts[j - 1], s.pts[j]) < tol) return s;
+  }
+  // a deviation area: its outline, or anywhere inside it
+  for (let i = sh.length - 1; i >= 0; i--) { const s = sh[i];
+    if (s.t === 'dev' && s.pts.length > 2 && (inPoly(w, s.pts) || s.pts.some((p, j) => segDist(w, p, s.pts[(j + 1) % s.pts.length]) < tol))) return s;
   }
   return null;
 }
@@ -1468,7 +1525,7 @@ function handlePoints(sel) {
   if (!sel) return [];
   if (sel.kind === 'face') return sel.f.pts;
   if (sel.kind === 'edge') return [sel.e.a, sel.e.b];
-  const s = sel.s; return s.t === 'line' ? [s.a, s.b] : [];
+  const s = sel.s; return s.a ? [s.a, s.b] : [];
 }
 function hitHandle(sp) {
   const sel = findSel(); if (!sel) return null;
@@ -1480,7 +1537,8 @@ function hitHandle(sp) {
 /* ================= Pointer handling ================= */
 const ptrs = new Map();
 let gesture = null;   // {type:'pinch'|'pan'|'tap'|'drag'|'vdrag'|'pen'|'place'|'erase', ...}
-const isDrawTool = () => ['area', 'line', 'scale', 'text', 'tape'].includes(S.tool);
+const isDrawTool = () => ['area', 'line', 'scale', 'text', 'tape'].includes(S.tool) || (S.tool === 'chk' && S.chkMode !== 'ok');
+const chkSegMode = () => S.tool === 'chk' && ['dim', 'add', 'gone'].includes(S.chkMode);
 const local = e => { const r = cv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
 
 /** Moving a corner moves it for every wall line that meets there; area details follow their area. */
@@ -1510,6 +1568,7 @@ cv.addEventListener('pointerdown', e => {
   if (ptrs.size === 2) {
     if (gesture?.type === 'pen' && gesture.shape) { S.page.shapes = S.page.shapes.filter(s => s !== gesture.shape); S.undo.pop(); }
     if (gesture?.type === 'stroke') S.draft = gesture.prev;
+    if (gesture?.type === 'cseg' && gesture.moved) S.draft = null;
     S.placing = null;
     const [a, b] = [...ptrs.values()];
     gesture = { type: 'pinch', d0: Math.hypot(b[0] - a[0], b[1] - a[1]), c0: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], V0: { ...S.V } };
@@ -1543,6 +1602,8 @@ cv.addEventListener('pointerdown', e => {
   }
   // measuring tape with a mouse: drag from point to point (a plain click still works point by point)
   if (S.tool === 'tape' && e.pointerType !== 'touch') { gesture = { type: 'tapedrag', start: sp, a: snapFor(s2w(sp)), moved: false }; return; }
+  // permit check (measured length, added wall, missing wall): drag along it, or tap its two ends
+  if (chkSegMode()) { gesture = { type: 'cseg', start: sp, A: snap(s2w(sp), null, 0, 20), moved: false }; return; }
   // walls with a finger or a phone pen: drag a line; it straightens near the axes and then asks for the real length
   if (S.tool === 'area' && S.segMode !== 'arc' && (e.pointerType === 'touch' || e.pointerType === 'pen')) {
     // while a line of walls is going, the next wall starts where the last one ended, unless the finger
@@ -1564,7 +1625,7 @@ function startPlacing(sp, forDrag) {
 cv.addEventListener('pointermove', e => {
   const sp = local(e);
   if (!ptrs.has(e.pointerId)) {
-    if (e.pointerType !== 'touch' && S.page && isDrawTool()) { S.hover = snapFor(s2w(sp)); draw(); }
+    if (e.pointerType !== 'touch' && S.page && isDrawTool() && !S.lenAsk) { S.hover = S.draft?.t === 'cseg' ? strokeEnd(S.draft.pts[0], s2w(sp)) : snapFor(s2w(sp)); draw(); }
     return;
   }
   ptrs.set(e.pointerId, sp);
@@ -1599,6 +1660,12 @@ cv.addEventListener('pointermove', e => {
     gesture.B = strokeEnd(gesture.A, s2w(sp)); gesture.kind = S.snapKind;
     S.placing = { sx: sp[0], sy: sp[1], w: gesture.B }; draw(); return;
   }
+  if (gesture.type === 'cseg') {
+    if (!gesture.moved && Math.hypot(sp[0] - gesture.start[0], sp[1] - gesture.start[1]) < 8) return;
+    gesture.moved = true; S.draft = { t: 'cseg', pts: [gesture.A] };
+    gesture.B = strokeEnd(gesture.A, s2w(sp));
+    S.placing = { sx: sp[0], sy: sp[1], w: gesture.B }; draw(); return;
+  }
   if (gesture.type === 'place') { S.placing.sx = sp[0]; S.placing.sy = sp[1]; S.placing.w = snapFor(s2w(sp)); draw(); return; }
   if (gesture.type === 'ndrag') {
     if (!gesture.moved && Math.hypot(sp[0] - gesture.start[0], sp[1] - gesture.start[1]) < 4) return;
@@ -1617,9 +1684,9 @@ cv.addEventListener('pointermove', e => {
   if (gesture.type === 'drag') {
     gesture.moved = true;
     const { s, i } = gesture.h;
-    if (s.t === 'line') { if (i) s.b = [1e12, 1e12]; else s.a = [1e12, 1e12]; }
+    if (s.a) { if (i) s.b = [1e12, 1e12]; else s.a = [1e12, 1e12]; }
     const w = s.t === 'text' ? s2w(sp).map(r1) : snap(s2w(sp), null, 0);
-    if (s.t === 'line') { if (i) s.b = w; else s.a = w; } else s.p = w;
+    if (s.a) { if (i) s.b = w; else s.a = w; } else s.p = w;
     if (S.placing) { S.placing.sx = sp[0]; S.placing.sy = sp[1]; S.placing.w = w; }
     draw(); return;
   }
@@ -1630,7 +1697,14 @@ function endPointer(e) {
   if (!gesture) return;
   if (gesture.type === 'pinch') { if (ptrs.size === 0) gesture = null; else { const [only] = [...ptrs.values()]; gesture = { type: 'pan', last: only, moved: true }; } return; }
   const g = gesture; gesture = null;
-  if (e.type === 'pointercancel') { S.placing = null; if (g.type === 'vdrag') S.dragKey = null; if (g.type === 'stroke') S.draft = g.prev; draw(); return; }
+  if (e.type === 'pointercancel') { S.placing = null; if (g.type === 'vdrag') S.dragKey = null; if (g.type === 'stroke') S.draft = g.prev; if (g.type === 'cseg' && g.moved) S.draft = null; draw(); return; }
+  if (g.type === 'cseg') {
+    S.placing = null;
+    if (g.moved && g.B) return finishCseg(g.A, g.B);
+    const d = S.draft?.t === 'cseg' && S.draft.pts.length === 1 ? S.draft : null;
+    if (d) return finishCseg(d.pts[0], strokeEnd(d.pts[0], s2w(sp)));   // second tap: the other end
+    S.draft = { t: 'cseg', pts: [g.A] }; renderCtx(); draw(); return;
+  }
   if (g.type === 'stroke') {
     S.placing = null;
     if (g.moved && g.B) finishStroke(g.A, g.B, g.kind, g.prev);
@@ -1737,8 +1811,70 @@ function addStroke(chain, B) {
   chainTap(B, (pg.edges || []).some(e => layerOf(e) === S.layer && segDist(B, e.a, e.b) < EPS));
   renderCtx(); draw();
 }
+/* ---------- permit check ---------- */
+/** A measured dimension, an added wall or a missing wall from A to B. */
+function finishCseg(A, B) {
+  S.placing = null; S.hover = null;
+  if (dist(A, B) * S.V.s < 10) { S.draft = null; renderCtx(); draw(); return; }
+  const pg = S.page, mode = S.chkMode;
+  if (mode === 'dim') {   // ask what was measured on site, in the one-row bar at the bottom
+    const k = pxPerM(pg);
+    S.lenAsk = { kind: 'dim', A, B, cur: k ? Math.round(dist(A, B) / k * 100) / 100 : null };
+    S.draft = { t: 'cseg', pts: [A, B] }; showLenBar(); draw(); return;
+  }
+  S.draft = null; pushUndo();
+  pg.shapes.push({ id: uid(), t: mode === 'add' ? 'added' : 'gone', a: A, b: B, label: '' });
+  markDirty(); renderCtx(); toast(mode === 'add' ? 'סומן קיר שנוסף' : 'סומן קיר שלא קיים');
+}
+function commitDim(a, how, raw) {
+  S.draft = null;
+  if (how === 'drop') { renderCtx(); draw(); toast('המידה בוטלה'); return; }
+  let m = raw.trim();
+  if (how === 'keep' || !m) m = a.cur != null ? String(a.cur) : '';   // empty = the same as the plan
+  else { const v = evalExpr(m); if (!(v > 0) || !isFinite(v)) { toast('המידה לא הובנה'); renderCtx(); draw(); return; } m = String(Math.round(v * 1000) / 1000); }
+  if (!m) { renderCtx(); draw(); return; }
+  pushUndo();
+  S.page.shapes.push({ id: uid(), t: 'line', a: a.A, b: a.B, label: '', measured: m, chk: true });
+  markDirty(); renderCtx();
+  if (chkOk(a.cur, evalExpr(m)) === false) toast(`סטייה של ${fmt(evalExpr(m) - a.cur)} מ׳ מהתשריט`);
+}
+/** ✓ mode: a tap adds a check mark, a tap on an existing one removes it. */
+function chkTap(sp) {
+  const pg = S.page, hit = pg.shapes.find(s => { if (s.t !== 'chk') return false; const q = w2s(s.p); return Math.hypot(q[0] - sp[0], q[1] - sp[1]) < 18; });
+  pushUndo();
+  if (hit) pg.shapes = pg.shapes.filter(s => s !== hit);
+  else pg.shapes.push({ id: uid(), t: 'chk', p: s2w(sp).map(r1) });
+  markDirty(); renderCtx();
+}
+/** Deviation area: tap its corners; tapping the first corner again (or "סגירה") closes it. */
+function devTap(w) {
+  if (S.draft?.t !== 'dev') S.draft = { t: 'dev', pts: [] };
+  const d = S.draft;
+  if (d.pts.length >= 3 && dist(w, d.pts[0]) * S.V.s < 14) return finishDev();
+  if (d.pts.length && dist(w, d.pts.at(-1)) * S.V.s < 3) return;
+  d.pts.push(w); renderCtx(); draw();
+}
+async function finishDev() {
+  const d = S.draft; if (d?.t !== 'dev' || d.pts.length < 3) return;
+  const pts = d.pts.slice(), pg = S.page, A = areaM(pg, pts);
+  S.draft = null; renderCtx(); draw();
+  const sugg = ['סגירת מרפסת', 'תוספת בנייה', 'שינוי פנימי', 'גלריה'];
+  const v = await dialog({ title: 'אזור חריגה', ok: 'שמירה', text: A != null ? `שטח לפי התשריט: <b class="num">${fmt(A)}</b> מ״ר` : 'לא נקבע קנה מידה, השטח לא יחושב',
+    fields: [{ id: 'n', label: 'תיאור', placeholder: 'למשל: סגירת מרפסת' }],
+    html: `<div class="row" style="flex-wrap:wrap;gap:6px">${sugg.map(s => `<button type="button" class="btn sm" data-sugg="${s}">${s}</button>`).join('')}</div>`,
+    onOpen: m => m.querySelectorAll('[data-sugg]').forEach(b => b.onclick = () => { m.querySelector('#dlg_n').value = b.dataset.sugg; m.querySelector('#dlgForm').requestSubmit(); }) });
+  if (!v) { toast('האזור בוטל'); return; }
+  pushUndo();
+  pg.shapes.push({ id: uid(), t: 'dev', pts, label: v.n.trim(), measured: '' });
+  markDirty(); renderCtx(); draw();
+}
 function showLenBar() {
   const a = S.lenAsk, bar = $('#lenbar');
+  if (a.kind === 'dim') {
+    bar.innerHTML = `<span class="lbl">בפועל</span><input class="input num" id="lenIn" inputmode="decimal" autocomplete="off" value="" placeholder="${a.cur != null ? a.cur : ''}" aria-label="המידה שנמדדה בפועל במטרים"><span class="lbl">מ׳</span>`
+      + `<button class="btn sm primary" data-l="ok" aria-label="אישור">✓</button>${a.cur != null ? `<button class="btn sm" data-l="keep">תואם</button>` : ''}<button class="btn sm danger" data-l="drop">ביטול</button>`;
+    bar.hidden = false; $('#ctxbar').hidden = true; $('#lenIn').focus(); return;
+  }
   bar.innerHTML = `<span class="lbl">אורך</span><input class="input num" id="lenIn" inputmode="decimal" autocomplete="off" value="${a.cur}" aria-label="אורך הקיר במטרים"><span class="lbl">מ׳</span>`
     + `<button class="btn sm primary" data-l="ok" aria-label="אישור">✓</button><button class="btn sm" data-l="keep">כמו שצויר</button><button class="btn sm danger" data-l="drop">ביטול</button>`;
   bar.hidden = false; $('#ctxbar').hidden = true;
@@ -1750,6 +1886,7 @@ function commitLen(how) {
   const raw = $('#lenIn')?.value || '';
   S.lenAsk = null; S.hover = null;
   $('#lenbar').hidden = true; $('#lenbar').innerHTML = ''; $('#ctxbar').hidden = false;
+  if (a.kind === 'dim') return commitDim(a, how, raw);
   if (how === 'drop') {   // nothing is added, and the next wall starts from the same point as before
     S.draft = a.chain === a.prev ? a.prev : null; renderCtx(); draw(); toast('הקו בוטל'); return;
   }
@@ -1781,6 +1918,7 @@ function onTapSelect(sp) {
 async function onTap(w, sp) {
   const pg = S.page; if (!pg) return;
   if (S.tool === 'pan' || S.tool === 'pen') return onTapSelect(sp);
+  if (S.tool === 'chk') { if (S.chkMode === 'ok') return chkTap(sp); if (S.chkMode === 'dev') return devTap(w); return; }
   if (S.tool === 'area') {
     // a typed length: the tap only gives the direction (not for the bend of an arc)
     const L = evalExpr($('#walkLen')?.value);
@@ -1855,7 +1993,7 @@ function setTool(t) {
 /* ================= Toolbar & context bar ================= */
 function renderTools() {
   const sk = S.page?.kind === 'sketch';
-  const tools = [['pan', 'בחירה'], ['area', 'קירות'], ['tape', 'סרט מדידה'], ['line', 'מידה'], ['text', 'הערה'], ['pen', 'עט'], ['erase', 'מחיקה']];
+  const tools = [['pan', 'בחירה'], ...(sk ? [] : [['chk', 'בדיקת היתר']]), ['area', 'קירות'],['tape', 'סרט מדידה'], ['line', 'מידה'], ['text', 'הערה'], ['pen', 'עט'], ['erase', 'מחיקה']];
   if (!sk) tools.push(['scale', 'קנה מידה']);
   $('#tools').innerHTML = tools.map(([k, n]) => `<button class="tool" data-tool="${k}" aria-pressed="${S.tool === k}">${svg(k)}<span>${n}</span></button>`).join('')
     + `<button class="tool sep" id="sumBtn" aria-pressed="${S.panelOpen}">${svg('sum')}<span>סיכום</span></button>`;
@@ -1893,6 +2031,12 @@ function renderCtx() {
       parts.push(`<span class="hint">${arc ? 'קשת: הקישי בנקודת ההתחלה' : touchUI ? 'גררי את הקיר הראשון עם האצבע. אחר כך מספיק להקיש בסוף כל קיר. קו כמעט ישר מתיישר לבד, ובסוף כל קו מקלידים את המידה בפועל' : 'הקישי בפינות החדר. קו בין שני קווים קיימים מחלק את השטח. קונטור נוסף מסביב לחדרים מוסיף את שטח הקירות לסה״כ'}</span>`);
     }
   }
+  else if (S.tool === 'chk') {
+    parts.push(`<div class="seg" role="group" aria-label="סוג סימון">${CHK_MODES.map(([k, n]) => `<button data-c="chk-${k}" aria-pressed="${S.chkMode === k}">${n}</button>`).join('')}</div>`);
+    if (d?.t === 'dev' && d.pts.length) parts.push(`${d.pts.length >= 3 ? '<button class="btn sm primary" data-c="devClose">סגירת האזור</button>' : ''}<button class="btn sm" data-c="cancel">ביטול</button>`);
+    else if (d?.t === 'cseg') parts.push(`<span class="hint">סמני את הנקודה השנייה</span><button class="btn sm" data-c="cancel">ביטול</button>`);
+    else parts.push(`<span class="hint">${CHK_HINTS[S.chkMode]}</span>`);
+  }
   else if (S.tool === 'tape') {
     if (d) parts.push(`<span class="hint">סמני את נקודת הסיום</span><button class="btn sm" data-c="cancel">ביטול</button>`);
     else if (S.tape) { const L = lenM(S.page, dist(S.tape.a, S.tape.b)); parts.push(`<span class="hint keep">סרט מדידה: <b class="num">${L != null ? fmt(L) : '—'}</b> מ׳${L == null ? ' (לא נקבע קנה מידה)' : ''}</span><button class="btn sm" data-c="tapeClear">ניקוי</button>`); }
@@ -1913,6 +2057,8 @@ $('#ctxbar').onclick = e => {
   if (c === 'endChain' || c === 'cancel') { S.draft = null; S.lenTyped = ''; renderCtx(); draw(); }
   if (c === 'seg-line' || c === 'seg-arc') { S.segMode = c.slice(4); if (S.draft) S.draft.arcB = null; renderCtx(); draw(); }
   if (c === 'tapeClear') { S.tape = null; renderCtx(); draw(); }
+  if (c.startsWith('chk-')) { S.chkMode = c.slice(4); S.draft = null; S.hover = null; renderCtx(); draw(); }
+  if (c === 'devClose') finishDev();
   if (c === 'ratio') scaleByRatio();
   if (c === 'toscale') setTool('scale');
   if (c === 'rect') rectRoom();
@@ -1990,7 +2136,7 @@ $('#sheetClose').onclick = () => { S.panelOpen = false; S.selId = null; renderPa
 function renderSel() {
   const box = $('#selBox'), pg = S.page;
   const sel = pg ? findSel() : null;
-  $('#sheetTitle').textContent = !sel ? 'סיכום' : sel.kind === 'face' ? 'שטח' : sel.kind === 'edge' ? 'קו' : ({ line: 'מידה', text: 'הערה', pen: 'ציור' })[sel.s.t];
+  $('#sheetTitle').textContent = !sel ? 'סיכום' : sel.kind === 'face' ? 'שטח' : sel.kind === 'edge' ? 'קו' : ({ line: 'מידה', text: 'הערה', pen: 'ציור', chk: 'סימון ✓', added: 'קיר שנוסף', gone: 'קיר שלא קיים', dev: 'אזור חריגה' })[sel.s.t];
   $('#sumBox').hidden = mobile() && !!sel;
   if (!sel) { box.innerHTML = ''; return; }
   const ref = pg.kind === 'sketch' ? 'הסקיצה' : 'התשריט';
@@ -2037,6 +2183,26 @@ function renderSel() {
       <div class="note-tools"><span class="small muted">צבע</span>${sw('fg', NOTE_FG, s.color || 'brown')}</div>
       <div class="note-tools"><span class="small muted">רקע</span>${sw('bg', NOTE_BG, s.bg || 'yellow')}</div>
       <div class="row"><span class="grow"></span><button class="btn sm danger" id="f_del">מחיקה</button></div></div>`;
+  } else if (sel.s.t === 'added' || sel.s.t === 'gone') {
+    const s = sel.s, L = lenM(pg, dist(s.a, s.b));
+    h = `<div class="psec"><h3>${s.t === 'added' ? 'קיר שקיים בפועל ולא מופיע בתשריט' : 'קיר שמופיע בתשריט ולא קיים בפועל'}</h3>
+      <div class="edit-grid">
+        <div class="field full"><label for="f_name">תיאור</label><input class="input" id="f_name" value="${esc(s.label)}" placeholder="${s.t === 'added' ? 'למשל: חלוקת חדר שינה' : 'למשל: קיר בין מטבח לסלון'}"></div>
+        <div class="field"><label>אורך לפי ${ref}</label><div class="input num" style="display:flex;align-items:center;background:var(--surface-2)">${fmt(L)} מ׳</div></div>
+      </div>
+      <div class="row"><span class="grow"></span><button class="btn sm danger" id="f_del">מחיקה</button></div></div>`;
+  } else if (sel.s.t === 'dev') {
+    const s = sel.s, A = areaM(pg, s.pts), real = evalExpr(s.measured);
+    h = `<div class="psec"><h3>אזור חריגה <small>${s.pts.length} פינות</small></h3>
+      <div class="edit-grid">
+        <div class="field full"><label for="f_name">תיאור</label><input class="input" id="f_name" value="${esc(s.label)}" placeholder="סגירת מרפסת, תוספת בנייה…"></div>
+        <div class="field"><label>לפי ${ref}</label><div class="input num" style="display:flex;align-items:center;background:var(--surface-2)">${fmt(A)} מ״ר</div></div>
+        <div class="field"><label for="f_meas">נמדד בפועל (מ״ר)</label><input class="input num" id="f_meas" inputmode="decimal" value="${esc(s.measured || '')}" placeholder="3.2*1.6"></div>
+        <div class="full"><span class="calc" id="f_calc">${calcText(A, real)}</span></div>
+      </div>
+      <div class="row"><span class="grow"></span><button class="btn sm danger" id="f_del">מחיקה</button></div></div>`;
+  } else if (sel.s.t === 'chk') {
+    h = `<div class="psec"><h3>מידה שאומתה בשטח ✓</h3><div class="row"><span class="grow calc">סימון שהמידה בתשריט נבדקה ותואמת</span><button class="btn sm danger" id="f_del">מחיקה</button></div></div>`;
   } else {
     h = `<div class="psec"><h3>ציור חופשי</h3><div class="row"><span class="grow"></span><button class="btn sm danger" id="f_del">מחיקה</button></div></div>`;
   }
@@ -2049,7 +2215,7 @@ function renderSel() {
   on('f_cat', 'change', e => { pushUndo(); tgt.cat = e.target.value; S.lastCat = tgt.cat; markDirty(); });
   on('f_meas', 'input', e => {
     arm(); tgt.measured = e.target.value; markDirty();
-    const base = sel.kind === 'face' ? areaM(pg, sel.f.pts) : lenM(pg, dist(tgt.a, tgt.b));
+    const base = sel.kind === 'face' ? areaM(pg, sel.f.pts) : tgt.t === 'dev' ? areaM(pg, tgt.pts) : lenM(pg, dist(tgt.a, tgt.b));
     box.querySelector('#f_calc').innerHTML = calcText(base, evalExpr(tgt.measured));
   });
   on('f_text', 'input', e => { arm(); tgt.text = e.target.value; markDirty(); });
@@ -2087,6 +2253,42 @@ function pageStats(pg) {
     if (r.real != null && isFinite(r.real)) { c.real += r.real; c.planR = (c.planR || 0) + (r.plan || 0); c.hasReal = true; }
   });
   return { rows, lines, by };
+}
+/** What the permit check found on a page, as lines for the summary and the report. bad: a deviation. */
+function chkFindings(pg) {
+  const sh = pg.shapes || [], out = [];
+  const dims = sh.filter(s => s.t === 'line' && String(s.measured ?? '').trim()).map(s => { const L = lenM(pg, dist(s.a, s.b)), r = evalExpr(s.measured); return { s, L, r, ok: chkOk(L, r) }; });
+  const ticks = sh.filter(s => s.t === 'chk').length, okN = dims.filter(d => d.ok).length;
+  if (ticks + okN) out.push({ t: `מידות שנבדקו ונמצאו תואמות: ${ticks + okN}`, ok: true });
+  dims.filter(d => d.ok === false).forEach(d => out.push({ t: `${d.s.label || 'מידה'}: בתשריט ${fmt(d.L)} מ׳, בפועל ${fmt(d.r)} מ׳ (${d.r > d.L ? '+' : ''}${fmt(d.r - d.L)})`, bad: true, id: d.s.id }));
+  const walls = (t, name) => { const w = sh.filter(s => s.t === t); if (!w.length) return;
+    const named = w.filter(s => s.label).map(s => s.label);
+    out.push({ t: `${name}: ${w.length}${named.length ? ' (' + named.join(', ') + ')' : ''}`, bad: true, id: w[0].id }); };
+  walls('added', 'קירות שקיימים בפועל ולא מופיעים בתשריט');
+  walls('gone', 'קירות שמופיעים בתשריט ולא קיימים בפועל');
+  const devs = sh.filter(s => s.t === 'dev');
+  devs.forEach(s => { const A = areaM(pg, s.pts), r = evalExpr(s.measured);
+    out.push({ t: `${s.label || 'אזור חריגה'}: ${fmt(A)} מ״ר${r != null && isFinite(r) ? ` (נמדד ${fmt(r)})` : ''}`, bad: true, id: s.id }); });
+  if (devs.length > 1) out.push({ t: `סה״כ אזורי חריגה: ${fmt(devs.reduce((a, s) => a + (areaM(pg, s.pts) || 0), 0))} מ״ר`, bad: true });
+  return out;
+}
+/** Floor height (measured, and as in the permit) and the permit-check conclusion of a page. */
+function checkHtml(pg) {
+  const ck = pg.check || {}, plan = pg.kind === 'plan', f = chkFindings(pg);
+  const h = evalExpr(ck.height), hp = evalExpr(ck.heightPlan);
+  let x = `<div class="psec" id="chkSec"><h3>${plan ? 'בדיקה בשטח מול ההיתר' : 'בדיקה בשטח'}</h3>
+    <div class="edit-grid">
+      <div class="field"><label for="c_h">גובה קומה שנמדד (מ׳)</label><input class="input num" id="c_h" inputmode="decimal" value="${esc(ck.height || '')}" placeholder="2.70"></div>
+      <div class="field"><label for="c_hp">גובה לפי ההיתר (מ׳)</label><input class="input num" id="c_hp" inputmode="decimal" value="${esc(ck.heightPlan || '')}" placeholder="לא חובה"></div>
+      <div class="full"><span class="calc" id="c_hcalc">${h != null && hp != null && isFinite(h) && isFinite(hp) ? calcText(hp, h) : ''}</span></div>
+    </div>`;
+  if (plan) {
+    x += `<div class="seg" role="group" aria-label="מסקנה" style="flex-wrap:wrap;margin-top:4px">${Object.entries(CHK_ST).map(([k, [n]]) => `<button type="button" data-st="${k}" aria-pressed="${ck.status === k}">${n}</button>`).join('')}</div>
+      <textarea class="input" id="c_note" style="margin-top:8px;min-height:64px" placeholder="מסקנה / פירוט: הבנייה תואמת להיתר…">${esc(ck.note || '')}</textarea>`;
+    x += f.length ? `<div style="display:grid;gap:4px;margin-top:8px">${f.map(r => `<div class="small" ${r.id ? `data-id="${r.id}" style="cursor:pointer;color:${r.bad ? BAD_C : OK_C}"` : `style="color:${r.bad ? BAD_C : OK_C}"`}>${r.bad ? '•' : '✓'} ${esc(r.t)}</div>`).join('')}</div>`
+      : `<span class="calc" style="display:block;margin-top:6px">הסימונים מכלי "בדיקת היתר" יופיעו כאן.</span>`;
+  }
+  return x + '</div>';
 }
 // planR = plan area of only the rooms that were also measured, so the difference compares like with like
 const sumCats = cats => Object.values(cats).reduce((a, v) => ({ plan: a.plan + v.plan, planR: a.planR + (v.planR || 0), real: a.real + v.real, hasReal: a.hasReal || v.hasReal }), { plan: 0, planR: 0, real: 0, hasReal: false });
@@ -2140,6 +2342,7 @@ function renderSummary() {
   }
   const notes = pg.shapes.filter(s => s.t === 'text');
   box.innerHTML = `<div class="psec"><h3>${esc(pg.name || 'עמוד')} <small>${by.net.rows.filter(r => !r.walls).length} שטחים · ${lines.length} מידות</small></h3>${scaleHtml}</div>
+    ${checkHtml(pg)}
     ${areaSecs}
     ${lines.length ? `<div class="psec"><h3>מידות קירות <small>מטר</small></h3>${lineHtml}</div>` : ''}
     ${notes.length ? `<div class="psec"><h3>הערות</h3>${notes.map(n => `<div class="small" data-id="${n.id}" style="cursor:pointer">• ${esc(n.text)}</div>`).join('')}</div>` : ''}
@@ -2152,7 +2355,18 @@ $('#sumBox').addEventListener('change', e => {
   const p = S.prop.pages.find(x => x.id === id); if (!p) return;
   p.inTotal = e.target.checked; markDirty(false); renderSummary();
 });
+// floor height and conclusion: saved while typing, without rebuilding the panel (that would close the keyboard)
+$('#sumBox').addEventListener('input', e => {
+  const id = e.target.id, pg = S.page; if (!pg || !['c_h', 'c_hp', 'c_note'].includes(id)) return;
+  const ck = pg.check ||= {};
+  ck[{ c_h: 'height', c_hp: 'heightPlan', c_note: 'note' }[id]] = e.target.value;
+  const h = evalExpr(ck.height), hp = evalExpr(ck.heightPlan), el = $('#c_hcalc');
+  if (el) el.innerHTML = h != null && hp != null && isFinite(h) && isFinite(hp) ? calcText(hp, h) : '';
+  markDirty(false);
+});
 $('#sumBox').onclick = e => {
+  const st = e.target.closest('[data-st]');
+  if (st && S.page) { const ck = S.page.check ||= {}; ck.status = ck.status === st.dataset.st ? '' : st.dataset.st; markDirty(false); renderSummary(); return; }
   if (e.target.closest('label')) return;
   const r = e.target.closest('[data-id]'); if (r) { selectById(r.dataset.id); return; }
   const s = e.target.closest('[data-s]'); if (s) { if (s.dataset.s === 'ratio') scaleByRatio(); else if (s.dataset.s === 're') recalibrate(); else { setTool('scale'); if (mobile()) { S.panelOpen = false; renderPanel(); renderTools(); } } return; }
@@ -2189,6 +2403,28 @@ function reportSummaryPages() {
     need(140);
     txt(p.name || 'עמוד', PW - M, 30, { bold: true }); y += 34;
     txt(p.kind === 'sketch' ? 'סקיצה בשטח' : !k ? 'לא נקבע קנה מידה' : p.scale.how === 'ratio' ? 'קנה מידה 1:' + p.scale.ratio : 'כויל לפי קו של ' + fmt(p.scale.ref.m) + ' מ׳', PW - M, 20, { color: '#5A6674' }); y += 40;
+    // site check: floor height, the conclusion and what was found against the permit
+    const ck = p.check || {}, hM = evalExpr(ck.height), hP = evalExpr(ck.heightPlan), fnd = p.kind === 'plan' ? chkFindings(p) : [];
+    const hOk = v => v != null && isFinite(v);
+    if (hOk(hM) || hOk(hP)) {
+      need(40);
+      txt('גובה קומה: ' + (hOk(hM) ? fmt(hM) + ' מ׳ (נמדד)' : '—') + (hOk(hP) ? ' · לפי ההיתר ' + fmt(hP) + ' מ׳' + (hOk(hM) ? ` · הפרש ${hM - hP > 0 ? '+' : ''}${fmt(hM - hP)}` : '') : ''), PW - M, 22, { bold: true });
+      y += 40;
+    }
+    if (p.kind === 'plan' && (ck.status || (ck.note || '').trim() || fnd.length)) {
+      need(110); txt('בדיקת התאמה להיתר', PW - M, 24, { bold: true, color: '#1F4FD1' }); y += 36;
+      if (ck.status && CHK_ST[ck.status]) { txt(CHK_ST[ck.status][0], PW - M, 24, { bold: true, color: CHK_ST[ck.status][1] }); y += 38; }
+      fnd.forEach(r => { need(32); txt((r.bad ? '• ' : '✓ ') + r.t, PW - M, 20, { color: r.bad ? BAD_C : OK_C }); y += 32; });
+      if ((ck.note || '').trim()) {   // the conclusion, wrapped to the page width
+        y += 6; x.font = `400 20px ${FONT}`; x.direction = 'rtl';
+        ck.note.trim().split('\n').forEach(par => {
+          let line = '';
+          par.split(/\s+/).forEach(wd => { x.font = `400 20px ${FONT}`; const t = line ? line + ' ' + wd : wd; if (x.measureText(t).width > PW - 2 * M && line) { need(30); txt(line, PW - M, 20); y += 30; line = wd; } else line = t; });
+          if (line) { need(30); txt(line, PW - M, 20); y += 30; }
+        });
+      }
+      y += 16;
+    }
     ['net', 'gross'].forEach(kd => {
       const b = st.by[kd]; if (!b.rows.length) return;
       need(120);
@@ -2274,6 +2510,10 @@ function tableRows() {
     const st = pageStats(p);
     st.rows.forEach(r => out.push([p.name, r.s.name || '', CATS[r.s.cat]?.n || '', r.walls ? 'קירות' : 'חדר', r.plan != null ? r.plan.toFixed(2) : '', r.real != null && isFinite(r.real) ? r.real.toFixed(2) : '', pct(r)]));
     st.lines.forEach(r => out.push([p.name, r.s.label || 'מידה', 'אורך קיר', 'מטר', r.plan != null ? r.plan.toFixed(2) : '', r.real != null && isFinite(r.real) ? r.real.toFixed(2) : '', pct(r)]));
+    (p.shapes || []).filter(s => s.t === 'dev').forEach(s => { const r = { plan: areaM(p, s.pts), real: evalExpr(s.measured) }; out.push([p.name, s.label || 'אזור חריגה', 'חריגה', 'מ״ר', r.plan != null ? r.plan.toFixed(2) : '', r.real != null && isFinite(r.real) ? r.real.toFixed(2) : '', pct(r)]); });
+    const ck = p.check || {};
+    if (ck.height || ck.heightPlan) { const r = { plan: evalExpr(ck.heightPlan), real: evalExpr(ck.height) }; out.push([p.name, 'גובה קומה', 'גובה', 'מטר', ck.heightPlan || '', ck.height || '', pct(r)]); }
+    if (ck.status) out.push([p.name, 'בדיקת היתר', CHK_ST[ck.status]?.[0] || '', '', '', '', '']);
   });
   return out;
 }
@@ -2326,7 +2566,7 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape') { if (S.draft) S.draft = null; else S.selId = null; renderPanel(false); draw(); }
   if (e.key === 'Enter' && S.draft?.t === 'chain') { S.draft = null; renderCtx(); draw(); }
   if ((e.key === 'Delete' || e.key === 'Backspace') && S.selId) deleteSel();
-  const map = { v: 'pan', a: 'area', r: 'tape', m: 'line', t: 'text', p: 'pen', s: 'scale', e: 'erase' }; if (map[e.key] && S.page && !(map[e.key] === 'scale' && S.page.kind === 'sketch')) setTool(map[e.key]);
+  const map = { v: 'pan', c: 'chk', a: 'area', r: 'tape', m: 'line', t: 'text', p: 'pen', s: 'scale', e: 'erase' }; if (map[e.key] && S.page && !((map[e.key] === 'scale' || map[e.key] === 'chk') && S.page.kind === 'sketch')) setTool(map[e.key]);
 });
 
 /* ================= Boot ================= */
