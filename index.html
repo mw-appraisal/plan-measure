@@ -298,7 +298,7 @@ const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 
 const clone = o => JSON.parse(JSON.stringify(o));
 const r1 = v => Math.round(v * 10) / 10;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-const APP_VER = '19.11.26-10';   // raise on every update: the phone compares it and loads the new version
+const APP_VER = '19.11.26-11';   // raise on every update: the phone compares it and loads the new version
 const CFG = Object.assign({ clientId: '', authority: 'https://login.microsoftonline.com/organizations', casesStart: 'MW שמאות מקרקעין', indexPath: 'מדידות תשריטים/נכסים.json' }, window.PM_CONFIG || {});
 // the measurements file has the program's own extension (.tsm), so double-clicking it opens the program
 const SUB = 'מדידות תשריט', DATA_FILE = 'מדידות.tsm', OLD_DATA_FILE = 'מדידות.json';
@@ -1758,6 +1758,12 @@ function endPointer(e) {
       const { s, i } = g.h;
       if (isSeg(s) && s.t !== 'gone') { const f = toWalls(i ? s.b : s.a, i ? s.a : s.b)[0]; if (i) s.b = f; else s.a = f; }
       markDirty(); renderSel();
+      // a measure that has a length measured on site: ask for the new one, or keep it
+      if (s.t === 'line' && s.measured) {
+        const k = pxPerM(S.page);
+        S.lenAsk = { kind: 'dim', edit: s, old: s.measured, A: s.a, B: s.b, cur: k ? Math.round(dist(s.a, s.b) / k * 100) / 100 : null };
+        showLenBar();
+      }
     } else { S.undo.pop(); draw(); }
   }
   else if (g.type === 'mdrag') { if (g.moved) { markDirty(); renderSel(); } else { S.undo.pop(); if (S.tool === 'pan') onTapSelect(sp); else draw(); } }
@@ -1993,6 +1999,15 @@ function finishCseg(A, B) {
 }
 function commitDim(a, how, raw) {
   S.draft = null;
+  if (a.edit) {   // a measure that was stretched: a new length, the plan's length, or the one it had
+    const s = a.edit; let m = raw.trim();
+    if (how === 'drop' || (how === 'ok' && !m)) m = a.old;
+    else if (how === 'keep') m = a.cur != null ? String(a.cur) : a.old;
+    else { const v = evalExpr(m); if (!(v > 0) || !isFinite(v)) { toast('המידה לא הובנה, נשארה הקודמת'); m = a.old; } else m = String(Math.round(v * 1000) / 1000); }
+    s.measured = m; markDirty(); renderCtx(); renderSel(); draw();
+    if (chkOk(a.cur, evalExpr(m)) === false) toast(`סטייה של ${fmt(evalExpr(m) - a.cur)} מ׳ מהתשריט`);
+    return;
+  }
   if (how === 'drop') { renderCtx(); draw(); toast('המידה בוטלה'); return; }
   let m = raw.trim();
   if (how === 'keep' || !m) m = a.cur != null ? String(a.cur) : '';   // empty = the same as the plan
@@ -2035,6 +2050,11 @@ async function finishDev() {
 }
 function showLenBar() {
   const a = S.lenAsk, bar = $('#lenbar');
+  if (a.kind === 'dim' && a.edit) {
+    bar.innerHTML = `<span class="lbl">בפועל</span><input class="input num" id="lenIn" inputmode="decimal" autocomplete="off" value="" placeholder="${esc(a.old)}" aria-label="המידה החדשה שנמדדה בפועל במטרים"><span class="lbl">מ׳</span>`
+      + `<button class="btn sm primary" data-l="ok" aria-label="אישור">✓</button>${a.cur != null ? `<button class="btn sm" data-l="keep">תואם</button>` : ''}<button class="btn sm" data-l="drop">השארת ${esc(a.old)}</button>`;
+    bar.hidden = false; $('#ctxbar').hidden = true; $('#lenIn').focus(); return;
+  }
   if (a.kind === 'dim') {
     bar.innerHTML = `<span class="lbl">בפועל</span><input class="input num" id="lenIn" inputmode="decimal" autocomplete="off" value="" placeholder="${a.cur != null ? a.cur : ''}" aria-label="המידה שנמדדה בפועל במטרים"><span class="lbl">מ׳</span>`
       + `<button class="btn sm primary" data-l="ok" aria-label="אישור">✓</button>${a.cur != null ? `<button class="btn sm" data-l="keep">תואם</button>` : ''}<button class="btn sm danger" data-l="drop">ביטול</button>`;
