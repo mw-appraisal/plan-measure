@@ -104,6 +104,7 @@ textarea.input { min-height: 70px; resize: vertical; }
 .ctxbar { position: absolute; bottom: 10px; right: 10px; left: 60px; display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-start; z-index: 2; pointer-events: none; }
 .ctxbar > * { pointer-events: auto; }
 .ctxbar .btn { box-shadow: 0 1px 4px rgb(0 0 0 / .15); }
+.ctxbar .seg button { white-space: nowrap; padding: 5px 10px; }
 .lenbar { position: absolute; left: 8px; right: 8px; bottom: 8px; z-index: 4; display: flex; align-items: center; gap: 6px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 6px 8px; box-shadow: 0 2px 10px rgb(0 0 0 / .22); }
 .lenbar[hidden] { display: none; }
 .lenbar .input { width: 84px; flex: 0 0 auto; font-size: 18px; padding: 6px 8px; }
@@ -297,7 +298,7 @@ const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 
 const clone = o => JSON.parse(JSON.stringify(o));
 const r1 = v => Math.round(v * 10) / 10;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-const APP_VER = '19.11.26-8';   // raise on every update: the phone compares it and loads the new version
+const APP_VER = '19.11.26-9';   // raise on every update: the phone compares it and loads the new version
 const CFG = Object.assign({ clientId: '', authority: 'https://login.microsoftonline.com/organizations', casesStart: 'MW שמאות מקרקעין', indexPath: 'מדידות תשריטים/נכסים.json' }, window.PM_CONFIG || {});
 // the measurements file has the program's own extension (.tsm), so double-clicking it opens the program
 const SUB = 'מדידות תשריט', DATA_FILE = 'מדידות.tsm', OLD_DATA_FILE = 'מדידות.json';
@@ -1337,7 +1338,7 @@ function renderScene(c, pg, V, w, h, o) {
       if (s.t === 'gone') { c.lineWidth = (isSel ? 4 : 3) * k; c.setLineDash([8 * k, 6 * k]); }
       else c.lineWidth = (isSel ? 5.5 : 4) * k;
       c.beginPath(); c.moveTo(A[0], A[1]); c.lineTo(B[0], B[1]); c.stroke(); c.setLineDash([]);
-      const t = (s.t === 'gone' ? '✗ לא קיים' : '+ קיר שנוסף') + (s.label ? ' · ' + s.label : '') + (s.t === 'added' && L != null ? ' · ' + fmt(L) : '');
+      const t = (s.t === 'gone' ? '✗ לא קיים' : '+ קיר שנוסף') + (s.label ? ' · ' + s.label : '') + (L != null ? ' · ' + fmt(L) : '');
       pill(t, (A[0] + B[0]) / 2, (A[1] + B[1]) / 2, isSel ? '#1F4FD1' : BAD_C, '#fff', 11);
     }
   }
@@ -1671,7 +1672,7 @@ cv.addEventListener('pointermove', e => {
     gesture.moved = true;
     gesture.B = strokeEnd(gesture.A, s2w(sp));
     // a measurement shows its ends already on the walls, so it is clear where it will land
-    const [a2, b2] = S.chkMode === 'dim' ? toWalls(gesture.A, gesture.B) : [gesture.A, gesture.B];
+    const [a2, b2] = chkSnap(gesture.A, gesture.B);
     S.draft = { t: 'cseg', pts: [a2] };
     S.placing = { sx: sp[0], sy: sp[1], w: b2 }; draw(); return;
   }
@@ -1876,14 +1877,81 @@ function toWalls(A, B) {
   return [wallFace(A, B) || A, wallFace(B, A) || B];
 }
 
+/** A wall of the plan that the line A–B was drawn over (for "קיר לא קיים"): the line is moved onto the middle
+ *  of that wall, and its ends go to where the wall really ends: the face of the wall it meets, or the end of
+ *  a wall that stops in the room. Returns [A, B] unchanged when no wall is found under the line. */
+function onWall(A, B) {
+  if (!S.wallSnap || S.page?.kind !== 'plan' || !S.img) return [A, B];
+  let L = dist(A, B); if (L < 6) return [A, B];
+  let u = [(B[0] - A[0]) / L, (B[1] - A[1]) / L], n = [-u[1], u[0]];
+  const k = pxPerM(S.page) || 100, Wd = Math.max(30 / S.V.s, 0.5 * k), gap2 = 0.35 * k;
+  const lum = planLum(Math.min(A[0], B[0]) - Wd - 4, Math.min(A[1], B[1]) - Wd - 4, Math.max(A[0], B[0]) + Wd + 4, Math.max(A[1], B[1]) + Wd + 4);
+  if (!lum) return [A, B];
+  const st = Math.max(0.5, Wd / 120);
+  /** Across the line at point C: the dark band of the wall nearest to the line (centre offset, half thickness, threshold). */
+  const bandAt = C => {
+    const ts = [], vs = [];
+    for (let t = -Wd; t <= Wd; t += st) {   // averaged over a short piece along the wall, so a door or text does not decide
+      let a = 0; for (const f of [-.06, -.03, 0, .03, .06]) a += lum(C[0] + u[0] * L * f + n[0] * t, C[1] + u[1] * L * f + n[1] * t);
+      ts.push(t); vs.push(a / 5);
+    }
+    const mx = Math.max(...vs), mn = Math.min(...vs); if (mx - mn < 60) return null;
+    const thr = (mx + mn) / 2, runs = [];
+    for (let i = 0; i < vs.length; i++) if (vs[i] < thr) { let j = i; while (j < vs.length && vs[j] < thr) j++; runs.push([ts[i], ts[j - 1]]); i = j; }
+    // a wall drawn as two thin lines counts as one band
+    const bands = []; runs.forEach(r => { const b = bands.at(-1); if (b && r[0] - b[1] <= gap2 && (b[1] - b[0] < 0.04 * k || r[1] - r[0] < 0.04 * k)) b[1] = r[1]; else bands.push(r.slice()); });
+    if (!bands.length) return null;
+    const b = bands.sort((x, y) => Math.abs((x[0] + x[1]) / 2) - Math.abs((y[0] + y[1]) / 2))[0];
+    return { c: (b[0] + b[1]) / 2, h: (b[1] - b[0]) / 2, thr };
+  };
+  const at = f => [A[0] + (B[0] - A[0]) * f, A[1] + (B[1] - A[1]) * f];
+  const b1 = bandAt(at(.3)), b2 = bandAt(at(.7)), bm = b1 || b2; if (!bm) return [A, B];
+  // the wall's own direction, from its middle at two places (a scanned plan is often a little rotated)
+  if (b1 && b2 && Math.abs(b1.c - b2.c) < Math.max(b1.h, b2.h) * 2 + 3) {
+    const C1 = at(.3), C2 = at(.7), P1 = [C1[0] + n[0] * b1.c, C1[1] + n[1] * b1.c], P2 = [C2[0] + n[0] * b2.c, C2[1] + n[1] * b2.c];
+    const d = dist(P1, P2), w = [(P2[0] - P1[0]) / d, (P2[1] - P1[1]) / d], pr = Q => (Q[0] - P1[0]) * w[0] + (Q[1] - P1[1]) * w[1];
+    A = [P1[0] + w[0] * pr(A), P1[1] + w[1] * pr(A)]; B = [P1[0] + w[0] * pr(B), P1[1] + w[1] * pr(B)];
+  } else { A = [A[0] + n[0] * bm.c, A[1] + n[1] * bm.c]; B = [B[0] + n[0] * bm.c, B[1] + n[1] * bm.c]; }
+  L = dist(A, B); u = [(B[0] - A[0]) / L, (B[1] - A[1]) / L]; n = [-u[1], u[0]];
+  const h = Math.max(b1?.h || 0, b2?.h || 0), thr = bm.thr;
+  // each end: beside the wall, in the rooms on both sides, the face of the wall it meets;
+  // if there is none, along the wall itself, where the wall stops (a wall that ends in the room)
+  const off = h + Math.max(3, 0.05 * k);
+  const end = (P, Q) => {
+    const uu = [(P[0] - Q[0]) / L, (P[1] - Q[1]) / L];
+    let best = null;
+    for (const sgn of [1, -1]) {
+      const Pl = [P[0] + n[0] * off * sgn, P[1] + n[1] * off * sgn], Ql = [Q[0] + n[0] * off * sgn, Q[1] + n[1] * off * sgn];
+      const f = wallFace(Pl, Ql); if (!f) continue;
+      const t = (f[0] - Pl[0]) * uu[0] + (f[1] - Pl[1]) * uu[1];
+      if (best == null || t < best) best = t;   // the nearer face: the length of the wall inside the rooms
+    }
+    if (best == null) {
+      const R = Math.min(L * 0.45, 40 / S.V.s);
+      const lm = planLum(Math.min(P[0] - uu[0] * R, P[0] + uu[0] * R) - h - 4, Math.min(P[1] - uu[1] * R, P[1] + uu[1] * R) - h - 4, Math.max(P[0] - uu[0] * R, P[0] + uu[0] * R) + h + 4, Math.max(P[1] - uu[1] * R, P[1] + uu[1] * R) + h + 4);
+      if (!lm) return P;
+      // the darkest point across the wall's thickness: dark while still inside the wall (also one drawn as two lines)
+      const across = t => { let m = 255; for (let o = -h; o <= h + .01; o += Math.max(.5, h / 6)) m = Math.min(m, lm(P[0] + uu[0] * t + n[0] * o, P[1] + uu[1] * t + n[1] * o)); return m; };
+      if (across(-R) >= thr) return P;
+      let prev = across(-R);
+      for (let t = -R + st; t <= R; t += st) { const v = across(t); if (v >= thr) { best = t - st * (v - thr) / (v - prev || 1); break; } prev = v; }
+      if (best == null) return P;
+    }
+    return [r1(P[0] + uu[0] * best), r1(P[1] + uu[1] * best)];
+  };
+  return [end(A, B), end(B, A)];
+}
+/** Snapping for the permit-check lines: measured and added walls end on wall faces, a missing wall sits on the plan wall. */
+const chkSnap = (A, B) => S.chkMode === 'gone' ? onWall(A, B) : toWalls(A, B);
+
 /* ---------- permit check ---------- */
 /** A measured dimension, an added wall or a missing wall from A to B. */
 function finishCseg(A, B) {
   S.placing = null; S.hover = null;
   if (dist(A, B) * S.V.s < 10) { S.draft = null; renderCtx(); draw(); return; }
   const pg = S.page, mode = S.chkMode;
+  [A, B] = chkSnap(A, B);
   if (mode === 'dim') {   // ask what was measured on site, in the one-row bar at the bottom
-    [A, B] = toWalls(A, B);
     const k = pxPerM(pg);
     S.lenAsk = { kind: 'dim', A, B, cur: k ? Math.round(dist(A, B) / k * 100) / 100 : null };
     S.draft = { t: 'cseg', pts: [A, B] }; showLenBar(); draw(); return;
@@ -2112,7 +2180,7 @@ function renderCtx() {
   else if (S.tool === 'scale' && !d) parts.push(`<span class="hint">${HINTS.scale}</span><button class="btn sm" data-c="ratio">לפי יחס 1:100…</button>`);
   else if (d && d.pts.length) parts.push(`<span class="hint">סמני את הנקודה השנייה</span><button class="btn sm" data-c="cancel">ביטול</button>`);
   else if (S.tool !== 'pan' || (!S.selId && !(S.page.edges || []).length && !S.page.shapes.length)) parts.push(`<span class="hint">${HINTS[S.tool]}</span>`);
-  if (S.page.kind === 'plan' && ((S.tool === 'chk' && S.chkMode === 'dim') || S.tool === 'line') && !d?.pts?.length) parts.push(`<button class="btn sm" data-c="wsnap" aria-pressed="${S.wallSnap}" style="${S.wallSnap ? 'background:var(--ink);color:var(--bg)' : ''}">הצמדה לקירות ${S.wallSnap ? '✓' : '✗'}</button>`);
+  if (S.page.kind === 'plan' && ((S.tool === 'chk' && ['dim', 'add', 'gone'].includes(S.chkMode)) || S.tool === 'line') && !d?.pts?.length) parts.push(`<button class="btn sm" data-c="wsnap" aria-pressed="${S.wallSnap}" style="${S.wallSnap ? 'background:var(--ink);color:var(--bg)' : ''}">הצמדה לקירות ${S.wallSnap ? '✓' : '✗'}</button>`);
   if (!pxPerM(S.page) && S.page.kind === 'plan' && S.tool !== 'scale' && !d) parts.push(`<button class="btn sm" data-c="toscale" style="background:var(--tape-soft)">לא נקבע קנה מידה · כיול</button>`);
   el.innerHTML = parts.join('');
   if (touchUI) el.querySelectorAll('.hint:not(.keep)').forEach(h => h.remove());
