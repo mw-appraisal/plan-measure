@@ -291,7 +291,7 @@ const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 
 const clone = o => JSON.parse(JSON.stringify(o));
 const r1 = v => Math.round(v * 10) / 10;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-const APP_VER = '19.11.26-3';   // raise on every update: the phone compares it and loads the new version
+const APP_VER = '19.11.26-4';   // raise on every update: the phone compares it and loads the new version
 const CFG = Object.assign({ clientId: '', authority: 'https://login.microsoftonline.com/organizations', casesStart: 'MW שמאות מקרקעין', indexPath: 'מדידות תשריטים/נכסים.json' }, window.PM_CONFIG || {});
 // the measurements file has the program's own extension (.tsm), so double-clicking it opens the program
 const SUB = 'מדידות תשריט', DATA_FILE = 'מדידות.tsm', OLD_DATA_FILE = 'מדידות.json';
@@ -1691,7 +1691,8 @@ function chainTap(w, onExisting) {
   if (ended && after.length > before) {
     // select the new area that touches the last line, so it can be named right away
     const touching = after.filter(f => f.pts.some(p => dist(p, w) < EPS)).sort((a, b) => a.area2 - b.area2);
-    if (touching[0]) { selectFace(touching[0], !mobile()); toast(`נסגר שטח של ${fmt(areaM(pg, touching[0].pts))} מ״ר`); return; }
+    // on a phone or tablet nothing opens: the room is just marked, and a tap on it opens its details
+    if (touching[0]) { selectFace(touching[0], !mobile() && !matchMedia('(pointer:coarse)').matches); toast(`נסגר שטח של ${fmt(areaM(pg, touching[0].pts))} מ״ר`); return; }
   }
   renderPanel(); draw();
 }
@@ -1708,6 +1709,9 @@ async function finishStroke(A, B, kind, prev) {
   const pg = S.page;
   if (dist(A, B) * S.V.s < 10) { S.draft = prev || null; draw(); return; }
   const chain = prev && dist(prev.pts.at(-1), A) < EPS ? prev : { t: 'chain', pts: [A] };
+  // ending close to where this line of walls started closes the room, without asking for a length
+  const P0 = chain.pts[0];
+  if (chain.pts.length > 2 && dist(B, P0) * S.V.s < 36) { B = P0.slice(); kind = 'v'; }
   const k = pxPerM(pg);
   if (k && kind !== 'v') {   // a line that ends on an existing corner closes the room, so its length is already set
     S.draft = chain; S.hover = B; draw();
@@ -1715,8 +1719,15 @@ async function finishStroke(A, B, kind, prev) {
     const v = await dialog({ title: 'אורך הקיר', ok: 'עדכון', cancel: 'להשאיר כמו שצויר',
       text: `הקו ששורטט הוא <b class="num">${fmt(cur)}</b> מ׳. הקלידי את המידה בפועל.`,
       fields: [{ id: 'len', label: 'אורך במטרים', num: true, value: String(cur) }],
-      onOpen: d => { const i = d.querySelector('#dlg_len'); i.focus(); i.select(); } });
+      onOpen: (d, close) => {
+        const i = d.querySelector('#dlg_len'); i.focus(); i.select();
+        const x = document.createElement('button'); x.type = 'button'; x.className = 'btn danger'; x.textContent = 'ביטול הקו';
+        x.onclick = () => close('drop'); d.querySelector('.actions').append(x);
+      } });
     S.hover = null;
+    if (v === 'drop') {   // drawn by mistake: nothing is added, and the next wall starts from the same point as before
+      S.draft = chain === prev ? prev : null; renderCtx(); draw(); toast('הקו בוטל'); return;
+    }
     const L = v && evalExpr(v.len);
     if (L && isFinite(L) && L > 0 && Math.abs(L - cur) >= 0.005) {
       const n = dist(A, B), m = L * k;
