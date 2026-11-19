@@ -291,7 +291,7 @@ const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 
 const clone = o => JSON.parse(JSON.stringify(o));
 const r1 = v => Math.round(v * 10) / 10;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-const APP_VER = '19.11.26-4';   // raise on every update: the phone compares it and loads the new version
+const APP_VER = '19.11.26-5';   // raise on every update: the phone compares it and loads the new version
 const CFG = Object.assign({ clientId: '', authority: 'https://login.microsoftonline.com/organizations', casesStart: 'MW שמאות מקרקעין', indexPath: 'מדידות תשריטים/נכסים.json' }, window.PM_CONFIG || {});
 // the measurements file has the program's own extension (.tsm), so double-clicking it opens the program
 const SUB = 'מדידות תשריט', DATA_FILE = 'מדידות.tsm', OLD_DATA_FILE = 'מדידות.json';
@@ -1846,10 +1846,10 @@ const HINTS = {
 function renderCtx() {
   const el = $('#ctxbar'); if (!S.page) { el.innerHTML = ''; return; }
   const d = S.draft, parts = [];
+  const touchUI = matchMedia('(pointer:coarse)').matches;   // phone/tablet: no instruction texts, the screen is small
   if (S.tool === 'area') {
     parts.push(`<div class="seg" role="group" aria-label="סוג קו"><button data-c="seg-line" aria-pressed="${S.segMode !== 'arc'}">קו ישר</button><button data-c="seg-arc" aria-pressed="${S.segMode === 'arc'}">קשת</button></div>`);
     const arc = S.segMode === 'arc';
-    const touchUI = matchMedia('(pointer:coarse)').matches;
     if (d && touchUI && !arc) {
       parts.push(`<span class="hint">הקישי בסוף הקיר הבא (אפשר גם לגרור לכיוון). הקשה על פינה קיימת סוגרת את החדר</span><button class="btn sm primary" data-c="endChain">סיום</button>`);
     } else if (d) {
@@ -1858,12 +1858,12 @@ function renderCtx() {
       parts.push(`<span class="hint">${hint}</span><button class="btn sm primary" data-c="endChain">סיום</button>`);
       if (pxPerM(S.page) && !arc) parts.push(`<div class="walk"><input class="input num" id="walkLen" inputmode="decimal" placeholder="אורך מ׳" aria-label="אורך הקיר הבא במטרים" value="${esc(S.lenTyped || '')}"><div class="dirs">${[['↖', -1, -1], ['↑', 0, -1], ['↗', 1, -1], ['←', -1, 0], ['', 0, 0], ['→', 1, 0], ['↙', -1, 1], ['↓', 0, 1], ['↘', 1, 1]].map(([s, x, y]) => s ? `<button data-dx="${x}" data-dy="${y}" aria-label="קיר לכיוון ${s}">${s}</button>` : '<span></span>').join('')}</div><span class="calc" style="max-width:130px">אורך + Enter: בכיוון של העכבר. או אורך + הקשה / חץ</span></div>`);
     } else {
-      parts.push(`<span class="hint">${arc ? 'קשת: הקישי בנקודת ההתחלה' : touchUI ? 'גררי את הקיר הראשון עם האצבע. אחר כך מספיק להקיש בסוף כל קיר. קו כמעט ישר מתיישר לבד, ובסוף כל קו מקלידים את המידה בפועל' : 'הקישי בפינות החדר. קו בין שני קווים קיימים מחלק את השטח. קונטור נוסף מסביב לחדרים מוסיף את שטח הקירות לסה״כ'}</span>${pxPerM(S.page) && !arc ? '<button class="btn sm" data-c="rect">חדר מלבני לפי מידות…</button>' : ''}`);
+      parts.push(`<span class="hint">${arc ? 'קשת: הקישי בנקודת ההתחלה' : touchUI ? 'גררי את הקיר הראשון עם האצבע. אחר כך מספיק להקיש בסוף כל קיר. קו כמעט ישר מתיישר לבד, ובסוף כל קו מקלידים את המידה בפועל' : 'הקישי בפינות החדר. קו בין שני קווים קיימים מחלק את השטח. קונטור נוסף מסביב לחדרים מוסיף את שטח הקירות לסה״כ'}</span>`);
     }
   }
   else if (S.tool === 'tape') {
     if (d) parts.push(`<span class="hint">סמני את נקודת הסיום</span><button class="btn sm" data-c="cancel">ביטול</button>`);
-    else if (S.tape) { const L = lenM(S.page, dist(S.tape.a, S.tape.b)); parts.push(`<span class="hint">סרט מדידה: <b class="num">${L != null ? fmt(L) : '—'}</b> מ׳${L == null ? ' (לא נקבע קנה מידה)' : ''}</span><button class="btn sm" data-c="tapeClear">ניקוי</button>`); }
+    else if (S.tape) { const L = lenM(S.page, dist(S.tape.a, S.tape.b)); parts.push(`<span class="hint keep">סרט מדידה: <b class="num">${L != null ? fmt(L) : '—'}</b> מ׳${L == null ? ' (לא נקבע קנה מידה)' : ''}</span><button class="btn sm" data-c="tapeClear">ניקוי</button>`); }
     else parts.push(`<span class="hint">${HINTS.tape}</span>`);
   }
   else if (S.tool === 'scale' && !d) parts.push(`<span class="hint">${HINTS.scale}</span><button class="btn sm" data-c="ratio">לפי יחס 1:100…</button>`);
@@ -1871,6 +1871,7 @@ function renderCtx() {
   else if (S.tool !== 'pan' || (!S.selId && !(S.page.edges || []).length && !S.page.shapes.length)) parts.push(`<span class="hint">${HINTS[S.tool]}</span>`);
   if (!pxPerM(S.page) && S.page.kind === 'plan' && S.tool !== 'scale' && !d) parts.push(`<button class="btn sm" data-c="toscale" style="background:var(--tape-soft)">לא נקבע קנה מידה · כיול</button>`);
   el.innerHTML = parts.join('');
+  if (touchUI) el.querySelectorAll('.hint:not(.keep)').forEach(h => h.remove());
 }
 $('#ctxbar').onclick = e => {
   const dirB = e.target.closest('[data-dx]');
