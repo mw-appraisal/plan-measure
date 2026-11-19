@@ -2,7 +2,7 @@
 <html lang="he" dir="rtl">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
 <meta name="theme-color" content="#16202B">
 <meta name="mobile-web-app-capable" content="yes">
 <title>מודד תשריטים</title>
@@ -104,6 +104,11 @@ textarea.input { min-height: 70px; resize: vertical; }
 .ctxbar { position: absolute; bottom: 10px; right: 10px; left: 60px; display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-start; z-index: 2; pointer-events: none; }
 .ctxbar > * { pointer-events: auto; }
 .ctxbar .btn { box-shadow: 0 1px 4px rgb(0 0 0 / .15); }
+.lenbar { position: absolute; left: 8px; right: 8px; bottom: 8px; z-index: 4; display: flex; align-items: center; gap: 6px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 6px 8px; box-shadow: 0 2px 10px rgb(0 0 0 / .22); }
+.lenbar[hidden] { display: none; }
+.lenbar .input { width: 84px; flex: 0 0 auto; font-size: 18px; padding: 6px 8px; }
+.lenbar .lbl { font-size: 13px; color: var(--muted); white-space: nowrap; }
+.lenbar .btn { flex: 0 0 auto; }
 .hint { background: var(--ink); color: var(--bg); border-radius: 8px; padding: 7px 11px; font-size: 13px; box-shadow: 0 1px 4px rgb(0 0 0 / .2); max-width: 100%; }
 .walk { display: flex; gap: 6px; align-items: center; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 6px; box-shadow: 0 1px 4px rgb(0 0 0 / .15); flex-wrap: wrap; }
 .walk input { width: 80px; min-height: 36px; }
@@ -267,6 +272,7 @@ table.sum tfoot td { font-weight: 600; border-bottom: 0; }
         </div>
       </div>
       <div class="ctxbar" id="ctxbar"></div>
+      <div class="lenbar" id="lenbar" hidden></div>
     </div>
     <div class="tools" id="tools"></div>
     <aside class="panel" id="panel">
@@ -291,7 +297,7 @@ const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 
 const clone = o => JSON.parse(JSON.stringify(o));
 const r1 = v => Math.round(v * 10) / 10;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-const APP_VER = '19.11.26-5';   // raise on every update: the phone compares it and loads the new version
+const APP_VER = '19.11.26-6';   // raise on every update: the phone compares it and loads the new version
 const CFG = Object.assign({ clientId: '', authority: 'https://login.microsoftonline.com/organizations', casesStart: 'MW שמאות מקרקעין', indexPath: 'מדידות תשריטים/נכסים.json' }, window.PM_CONFIG || {});
 // the measurements file has the program's own extension (.tsm), so double-clicking it opens the program
 const SUB = 'מדידות תשריט', DATA_FILE = 'מדידות.tsm', OLD_DATA_FILE = 'מדידות.json';
@@ -684,6 +690,7 @@ async function openProp(folder) {
   }
   S.folder = folder; S.prop = r.data; S.prop.pages ||= []; S.propVer = r.version;
   S.pageId = null; S.page = null; S.selId = null; S.draft = null; S.undo = []; S.dirty = false;
+  S.lenAsk = null; $('#lenbar').hidden = true; $('#ctxbar').hidden = false;
   $('#home').hidden = true; $('#editor').hidden = false;
   setSync('', 'נשמר');
   try { localStorage.setItem('pm.last', folder); } catch {}
@@ -718,6 +725,7 @@ setInterval(pollRemote, 5000);
 
 /* ================= Pages ================= */
 function loadPage(id) {
+  if (S.lenAsk) { S.lenAsk = null; $('#lenbar').hidden = true; $('#ctxbar').hidden = false; }
   const p = S.prop.pages.find(x => x.id === id); if (!p) return;
   p.shapes ||= [];
   if (migratePage(p)) markDirty(false);
@@ -944,6 +952,7 @@ window.addEventListener('beforeunload', e => { if (S.dirty || S.saving) { e.prev
 function snapshot() { const p = S.page; return JSON.stringify({ shapes: p.shapes, scale: p.scale, edges: p.edges || [], faces: p.faces || [] }); }
 function pushUndo() { if (!S.page) return; S.undo.push(snapshot()); if (S.undo.length > 120) S.undo.shift(); }
 function undo() {
+  if (S.lenAsk) return commitLen('drop');   // ↶ while the length bar is open removes that line
   const d = S.draft;
   if (d && d.t !== 'chain' && d.pts.length) { d.pts.pop(); if (!d.pts.length) S.draft = null; renderCtx(); draw(); return; }
   const u = S.undo.pop(); if (!u) return toast('אין מה לבטל');
@@ -1150,7 +1159,8 @@ function resize() {
   cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
   document.documentElement.style.setProperty('--tools-h', $('#tools').offsetHeight + 'px');
   // keep the plan fitted until the user moves it; afterwards keep the same point in the middle
-  if (S.autoFit || !oldW) return fit();
+  // the phone keyboard only changes the height: keep the drawing where it is instead of refitting it
+  if (!oldW || (S.autoFit && W !== oldW)) return fit();
   S.V.tx += (W - oldW) / 2; S.V.ty += (H - oldH) / 2;
   draw();
 }
@@ -1494,6 +1504,7 @@ function endVertexDrag(g) {
 
 cv.addEventListener('pointerdown', e => {
   if (!S.page) return;
+  if (S.lenAsk && !ptrs.size) commitLen('ok');   // touching the drawing accepts the length as typed and goes on
   cv.setPointerCapture(e.pointerId);
   const sp = local(e); ptrs.set(e.pointerId, sp);
   if (ptrs.size === 2) {
@@ -1704,42 +1715,62 @@ function strokeEnd(A, w) {
   const was = S.ortho; S.ortho = straight;
   try { return snap(w, A, 0, 22); } finally { S.ortho = was; }
 }
-/** After a finger-drawn wall: ask for the length measured on site and fit the line to it. */
-async function finishStroke(A, B, kind, prev) {
+/** After a finger-drawn wall: a one-row bar at the bottom asks for the length measured on site. */
+function finishStroke(A, B, kind, prev) {
   const pg = S.page;
   if (dist(A, B) * S.V.s < 10) { S.draft = prev || null; draw(); return; }
   const chain = prev && dist(prev.pts.at(-1), A) < EPS ? prev : { t: 'chain', pts: [A] };
   // ending close to where this line of walls started closes the room, without asking for a length
-  const P0 = chain.pts[0];
-  if (chain.pts.length > 2 && dist(B, P0) * S.V.s < 36) { B = P0.slice(); kind = 'v'; }
+  // (only when it is clearly the start: near it on screen and much nearer than the wall is long)
+  const P0 = chain.pts[0], dP0 = dist(B, P0);
+  if (chain.pts.length > 2 && dP0 * S.V.s < 36 && dP0 < dist(A, P0) * 0.3) { B = P0.slice(); kind = 'v'; }
   const k = pxPerM(pg);
   if (k && kind !== 'v') {   // a line that ends on an existing corner closes the room, so its length is already set
-    S.draft = chain; S.hover = B; draw();
-    const cur = Math.round(dist(A, B) / k * 100) / 100;
-    const v = await dialog({ title: 'אורך הקיר', ok: 'עדכון', cancel: 'להשאיר כמו שצויר',
-      text: `הקו ששורטט הוא <b class="num">${fmt(cur)}</b> מ׳. הקלידי את המידה בפועל.`,
-      fields: [{ id: 'len', label: 'אורך במטרים', num: true, value: String(cur) }],
-      onOpen: (d, close) => {
-        const i = d.querySelector('#dlg_len'); i.focus(); i.select();
-        const x = document.createElement('button'); x.type = 'button'; x.className = 'btn danger'; x.textContent = 'ביטול הקו';
-        x.onclick = () => close('drop'); d.querySelector('.actions').append(x);
-      } });
-    S.hover = null;
-    if (v === 'drop') {   // drawn by mistake: nothing is added, and the next wall starts from the same point as before
-      S.draft = chain === prev ? prev : null; renderCtx(); draw(); toast('הקו בוטל'); return;
-    }
-    const L = v && evalExpr(v.len);
-    if (L && isFinite(L) && L > 0 && Math.abs(L - cur) >= 0.005) {
-      const n = dist(A, B), m = L * k;
-      B = [r1(A[0] + (B[0] - A[0]) / n * m), r1(A[1] + (B[1] - A[1]) / n * m)];
-      const near = (pg.edges || []).filter(e => layerOf(e) === S.layer).flatMap(e => [e.a, e.b]).find(q => dist(q, B) < Math.max(EPS, m * 0.005));
-      if (near) B = near.slice();
-    } else if (v && v.len.trim() && !(L > 0)) toast('האורך לא הובן, הקו נשאר כמו שצויר');
+    S.lenAsk = { A, B, chain, prev, cur: Math.round(dist(A, B) / k * 100) / 100 };
+    S.draft = chain; S.hover = B; showLenBar(); draw(); return;
   }
+  addStroke(chain, B);
+}
+function addStroke(chain, B) {
+  const pg = S.page;
   S.draft = chain;   // the line of walls carries on from B until it closes a room or "סיום" is pressed
   chainTap(B, (pg.edges || []).some(e => layerOf(e) === S.layer && segDist(B, e.a, e.b) < EPS));
   renderCtx(); draw();
 }
+function showLenBar() {
+  const a = S.lenAsk, bar = $('#lenbar');
+  bar.innerHTML = `<span class="lbl">אורך</span><input class="input num" id="lenIn" inputmode="decimal" autocomplete="off" value="${a.cur}" aria-label="אורך הקיר במטרים"><span class="lbl">מ׳</span>`
+    + `<button class="btn sm primary" data-l="ok" aria-label="אישור">✓</button><button class="btn sm" data-l="keep">כמו שצויר</button><button class="btn sm danger" data-l="drop">ביטול</button>`;
+  bar.hidden = false; $('#ctxbar').hidden = true;
+  const i = $('#lenIn'); i.focus(); i.select();
+}
+/** how: 'ok' (use the typed length), 'keep' (as drawn) or 'drop' (the line was a mistake). */
+function commitLen(how) {
+  const a = S.lenAsk; if (!a) return;
+  const raw = $('#lenIn')?.value || '';
+  S.lenAsk = null; S.hover = null;
+  $('#lenbar').hidden = true; $('#lenbar').innerHTML = ''; $('#ctxbar').hidden = false;
+  if (how === 'drop') {   // nothing is added, and the next wall starts from the same point as before
+    S.draft = a.chain === a.prev ? a.prev : null; renderCtx(); draw(); toast('הקו בוטל'); return;
+  }
+  let B = a.B;
+  if (how === 'ok') {
+    const L = evalExpr(raw), pg = S.page, k = pxPerM(pg);
+    if (L && isFinite(L) && L > 0 && Math.abs(L - a.cur) >= 0.005) {
+      const n = dist(a.A, B), m = L * k;
+      B = [r1(a.A[0] + (B[0] - a.A[0]) / n * m), r1(a.A[1] + (B[1] - a.A[1]) / n * m)];
+      const near = (pg.edges || []).filter(e => layerOf(e) === S.layer).flatMap(e => [e.a, e.b]).find(q => dist(q, B) < Math.max(EPS, m * 0.005));
+      if (near) B = near.slice();
+    } else if (raw.trim() && !(L > 0)) toast('האורך לא הובן, הקו נשאר כמו שצויר');
+  }
+  addStroke(a.chain, B);
+}
+$('#lenbar').addEventListener('pointerdown', e => { if (e.target.closest('button')) e.preventDefault(); });   // keep the keyboard open
+$('#lenbar').onclick = e => { const b = e.target.closest('[data-l]'); if (b) commitLen(b.dataset.l); };
+$('#lenbar').addEventListener('keydown', e => {
+  if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); commitLen('ok'); }
+  if (e.key === 'Escape') { e.stopPropagation(); commitLen('drop'); }
+});
 /** A tap that only selects: a note, measure or pen line, then a wall, then an area. */
 function onTapSelect(sp) {
   const item = hitItem(sp); if (item) { S.selId = item.id; renderPanel(true); draw(); return; }
@@ -1815,6 +1846,7 @@ function recalibrate() {
 }
 
 function setTool(t) {
+  if (S.lenAsk) commitLen('ok');
   if (S.draft && S.draft.t !== (t === 'area' ? 'chain' : t)) S.draft = null;
   if (t !== 'tape') S.tape = null;
   S.tool = t; S.hover = null; renderTools(); renderCtx(); draw();
