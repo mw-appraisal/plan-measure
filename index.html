@@ -1496,7 +1496,7 @@ cv.addEventListener('pointerdown', e => {
   const sp = local(e); ptrs.set(e.pointerId, sp);
   if (ptrs.size === 2) {
     if (gesture?.type === 'pen' && gesture.shape) { S.page.shapes = S.page.shapes.filter(s => s !== gesture.shape); S.undo.pop(); }
-    if (gesture?.type === 'stroke') S.draft = null;
+    if (gesture?.type === 'stroke') S.draft = gesture.prev;
     S.placing = null;
     const [a, b] = [...ptrs.values()];
     gesture = { type: 'pinch', d0: Math.hypot(b[0] - a[0], b[1] - a[1]), c0: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], V0: { ...S.V } };
@@ -1532,7 +1532,13 @@ cv.addEventListener('pointerdown', e => {
   if (S.tool === 'tape' && e.pointerType !== 'touch') { gesture = { type: 'tapedrag', start: sp, a: snapFor(s2w(sp)), moved: false }; return; }
   // walls with a finger or a phone pen: drag a line; it straightens near the axes and then asks for the real length
   if (S.tool === 'area' && S.segMode !== 'arc' && (e.pointerType === 'touch' || e.pointerType === 'pen')) {
-    gesture = { type: 'stroke', start: sp, A: snap(s2w(sp), null, 0, 24), moved: false }; return;
+    // while a line of walls is going, the next wall starts where the last one ended, unless the finger
+    // starts on another existing corner (then a new line of walls starts there)
+    const prev = S.draft?.t === 'chain' ? S.draft : null, last = prev?.pts.at(-1);
+    let A = snap(s2w(sp), null, 0, 24);
+    const cont = !!last && (S.snapKind !== 'v' || dist(A, last) * S.V.s < 30);
+    if (cont) A = last;
+    gesture = { type: 'stroke', start: sp, A, prev, cont, moved: false }; return;
   }
   if (isDrawTool() && e.pointerType === 'touch') { gesture = { type: 'place' }; startPlacing(sp); return; }
   gesture = { type: 'tap', start: sp, last: sp, moved: false };
@@ -1576,7 +1582,7 @@ cv.addEventListener('pointermove', e => {
   if (gesture.type === 'pen') { const w = s2w(sp).map(r1), last = gesture.shape.pts.at(-1); if (dist(w, last) * S.V.s > 2.5) { gesture.shape.pts.push(w); draw(); } return; }
   if (gesture.type === 'stroke') {
     if (!gesture.moved && Math.hypot(sp[0] - gesture.start[0], sp[1] - gesture.start[1]) < 8) return;
-    gesture.moved = true; S.draft = { t: 'chain', pts: [gesture.A] };
+    gesture.moved = true; S.draft = gesture.cont ? gesture.prev : { t: 'chain', pts: [gesture.A] };
     gesture.B = strokeEnd(gesture.A, s2w(sp)); gesture.kind = S.snapKind;
     S.placing = { sx: sp[0], sy: sp[1], w: gesture.B }; draw(); return;
   }
@@ -1611,8 +1617,14 @@ function endPointer(e) {
   if (!gesture) return;
   if (gesture.type === 'pinch') { if (ptrs.size === 0) gesture = null; else { const [only] = [...ptrs.values()]; gesture = { type: 'pan', last: only, moved: true }; } return; }
   const g = gesture; gesture = null;
-  if (e.type === 'pointercancel') { S.placing = null; if (g.type === 'vdrag') S.dragKey = null; if (g.type === 'stroke') S.draft = null; draw(); return; }
-  if (g.type === 'stroke') { S.placing = null; if (g.moved && g.B) finishStroke(g.A, g.B, g.kind); else onTapSelect(sp); return; }
+  if (e.type === 'pointercancel') { S.placing = null; if (g.type === 'vdrag') S.dragKey = null; if (g.type === 'stroke') S.draft = g.prev; draw(); return; }
+  if (g.type === 'stroke') {
+    S.placing = null;
+    if (g.moved && g.B) finishStroke(g.A, g.B, g.kind, g.prev);
+    else if (g.prev) { const L0 = g.prev.pts.at(-1), B = strokeEnd(L0, s2w(sp)); finishStroke(L0, B, S.snapKind, g.prev); }   // a tap = the end of the next wall
+    else onTapSelect(sp);
+    return;
+  }
   if (g.type === 'tapedrag') { if (!g.moved) onTap(g.a, sp); else { S.hover = null; renderCtx(); draw(); } }
   else if (g.type === 'erase') { if (!g.dragging) { gesture = g; eraseAt(sp, false); gesture = null; } if (g.n) { markDirty(); renderPanel(false); toast(g.n === 1 ? 'נמחק. ↶ מחזיר' : `נמחקו ${g.n}. ↶ מחזיר`); } }
   else if (g.type === 'tap') onTap(snapFor(s2w(sp)), sp);
@@ -1690,12 +1702,13 @@ function strokeEnd(A, w) {
   try { return snap(w, A, 0, 22); } finally { S.ortho = was; }
 }
 /** After a finger-drawn wall: ask for the length measured on site and fit the line to it. */
-async function finishStroke(A, B, kind) {
+async function finishStroke(A, B, kind, prev) {
   const pg = S.page;
-  if (dist(A, B) * S.V.s < 10) { S.draft = null; draw(); return; }
+  if (dist(A, B) * S.V.s < 10) { S.draft = prev || null; draw(); return; }
+  const chain = prev && dist(prev.pts.at(-1), A) < EPS ? prev : { t: 'chain', pts: [A] };
   const k = pxPerM(pg);
   if (k && kind !== 'v') {   // a line that ends on an existing corner closes the room, so its length is already set
-    S.draft = { t: 'chain', pts: [A] }; S.hover = B; draw();
+    S.draft = chain; S.hover = B; draw();
     const cur = Math.round(dist(A, B) / k * 100) / 100;
     const v = await dialog({ title: 'אורך הקיר', ok: 'עדכון', cancel: 'להשאיר כמו שצויר',
       text: `הקו ששורטט הוא <b class="num">${fmt(cur)}</b> מ׳. הקלידי את המידה בפועל.`,
@@ -1710,9 +1723,9 @@ async function finishStroke(A, B, kind) {
       if (near) B = near.slice();
     } else if (v && v.len.trim() && !(L > 0)) toast('האורך לא הובן, הקו נשאר כמו שצויר');
   }
-  S.draft = { t: 'chain', pts: [A] };
+  S.draft = chain;   // the line of walls carries on from B until it closes a room or "סיום" is pressed
   chainTap(B, (pg.edges || []).some(e => layerOf(e) === S.layer && segDist(B, e.a, e.b) < EPS));
-  S.draft = null; renderCtx(); draw();
+  renderCtx(); draw();
 }
 /** A tap that only selects: a note, measure or pen line, then a wall, then an area. */
 function onTapSelect(sp) {
@@ -1823,13 +1836,16 @@ function renderCtx() {
   if (S.tool === 'area') {
     parts.push(`<div class="seg" role="group" aria-label="סוג קו"><button data-c="seg-line" aria-pressed="${S.segMode !== 'arc'}">קו ישר</button><button data-c="seg-arc" aria-pressed="${S.segMode === 'arc'}">קשת</button></div>`);
     const arc = S.segMode === 'arc';
-    if (d) {
+    const touchUI = matchMedia('(pointer:coarse)').matches;
+    if (d && touchUI && !arc) {
+      parts.push(`<span class="hint">הקישי בסוף הקיר הבא (אפשר גם לגרור לכיוון). הקשה על פינה קיימת סוגרת את החדר</span><button class="btn sm primary" data-c="endChain">סיום</button>`);
+    } else if (d) {
       const hint = arc ? (d.arcB ? 'הזיזי והקישי כדי לקבוע כמה הקשת מתעגלת' : 'הקישי בנקודת הסוף של הקשת')
         : 'הקלידי אורך והקישי בכיוון הרצוי, או הקישי בנקודה. קו שמגיע לקו קיים סוגר את השטח';
       parts.push(`<span class="hint">${hint}</span><button class="btn sm primary" data-c="endChain">סיום</button>`);
       if (pxPerM(S.page) && !arc) parts.push(`<div class="walk"><input class="input num" id="walkLen" inputmode="decimal" placeholder="אורך מ׳" aria-label="אורך הקיר הבא במטרים" value="${esc(S.lenTyped || '')}"><div class="dirs">${[['↖', -1, -1], ['↑', 0, -1], ['↗', 1, -1], ['←', -1, 0], ['', 0, 0], ['→', 1, 0], ['↙', -1, 1], ['↓', 0, 1], ['↘', 1, 1]].map(([s, x, y]) => s ? `<button data-dx="${x}" data-dy="${y}" aria-label="קיר לכיוון ${s}">${s}</button>` : '<span></span>').join('')}</div><span class="calc" style="max-width:130px">אורך + Enter: בכיוון של העכבר. או אורך + הקשה / חץ</span></div>`);
     } else {
-      parts.push(`<span class="hint">${arc ? 'קשת: הקישי בנקודת ההתחלה' : matchMedia('(pointer:coarse)').matches ? 'גררי קיר עם האצבע מפינה לפינה. קו כמעט ישר מתיישר לבד, ובסוף כל קו מקלידים את המידה בפועל. קו שמגיע לפינה קיימת סוגר את החדר' : 'הקישי בפינות החדר. קו בין שני קווים קיימים מחלק את השטח. קונטור נוסף מסביב לחדרים מוסיף את שטח הקירות לסה״כ'}</span>${pxPerM(S.page) && !arc ? '<button class="btn sm" data-c="rect">חדר מלבני לפי מידות…</button>' : ''}`);
+      parts.push(`<span class="hint">${arc ? 'קשת: הקישי בנקודת ההתחלה' : touchUI ? 'גררי את הקיר הראשון עם האצבע. אחר כך מספיק להקיש בסוף כל קיר. קו כמעט ישר מתיישר לבד, ובסוף כל קו מקלידים את המידה בפועל' : 'הקישי בפינות החדר. קו בין שני קווים קיימים מחלק את השטח. קונטור נוסף מסביב לחדרים מוסיף את שטח הקירות לסה״כ'}</span>${pxPerM(S.page) && !arc ? '<button class="btn sm" data-c="rect">חדר מלבני לפי מידות…</button>' : ''}`);
     }
   }
   else if (S.tool === 'tape') {
